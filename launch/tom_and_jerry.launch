@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="tom_and_jerry" type="tom_robot.py" name="tom_robot" output="screen" />
+    <node pkg="tom_and_jerry" type="jerry_robot.py" name="jerry_robot" output="screen" />
+</launch>
