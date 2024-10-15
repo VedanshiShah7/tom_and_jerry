@@ -1,3 +1,10 @@
+# Ignore build directories
 build/
 devel/
+
+# Ignore temporary files
 *.pyc
+*.log
+
+# Ignore environment files
+.env
