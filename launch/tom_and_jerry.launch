@@ -1,4 +1,10 @@
 <launch>
+    <!-- Launch Gazebo with the specified world -->
+    <include file="$(find gazebo_ros)/launch/gazebo.launch">
+        <arg name="world_name" value="$(find tom_and_jerry)/worlds/cheese_napping.world" />
+    </include>
+
+    <!-- Start the Tom and Jerry robots -->
     <node pkg="tom_and_jerry" type="tom_robot.py" name="tom_robot" output="screen" />
     <node pkg="tom_and_jerry" type="jerry_robot.py" name="jerry_robot" output="screen" />
 </launch>
