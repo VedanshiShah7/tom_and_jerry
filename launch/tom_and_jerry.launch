@@ -1,10 +1,15 @@
 <launch>
-    <!-- Launch Gazebo with the specified world -->
-    <include file="$(find gazebo_ros)/launch/gazebo.launch">
-        <arg name="world_name" value="$(find tom_and_jerry)/worlds/cheese_napping.world" />
-    </include>
+  <!-- Launch Gazebo with the specified world -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(find tom_and_jerry)/worlds/tom_and_jerry.world"/>
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="true"/>
+    <arg name="headless" value="false"/>
+    <arg name="debug" value="false"/>
+  </include>
 
-    <!-- Start the Tom and Jerry robots -->
+  <!-- Start the Tom and Jerry robots -->
     <node pkg="tom_and_jerry" type="tom_robot.py" name="tom_robot" output="screen" />
     <node pkg="tom_and_jerry" type="jerry_robot.py" name="jerry_robot" output="screen" />
 </launch>
