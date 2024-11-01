@@ -1,0 +1,43 @@
+import rospy
+from geometry_msgs.msg import Twist
+from math import atan2
+import AStarPlanner
+import LocalizationAMCL
+import PotentialFieldNavigator
+
+class JerryNavigator:
+    def __init__(self, grid, start, goal):
+        rospy.init_node('jerry_navigator', anonymous=True)
+        self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+        self.localization = LocalizationAMCL()
+        self.planner = AStarPlanner(grid, start, goal)
+        self.navigator = PotentialFieldNavigator(goal)
+
+        self.path = self.planner.search()
+
+    def move_along_path(self):
+        for waypoint in self.path:
+            while not rospy.is_shutdown() and self.localization.current_pose:
+                position = self.localization.current_pose
+                obstacles = self.get_obstacles()
+                force = self.navigator.calculate_force(position, obstacles)
+                move_cmd = Twist()
+                move_cmd.linear.x = min(0.3, np.linalg.norm(force))
+                move_cmd.angular.z = atan2(force[1], force[0])
+
+                self.cmd_vel_pub.publish(move_cmd)
+                rospy.sleep(0.1)
+
+    def get_obstacles(self):
+        # Placeholder to process LIDAR or other sensor data to detect obstacles
+        return [(2, 3), (3, 3)]  # Example obstacle positions
+
+    def run(self):
+        self.move_along_path()
+
+if __name__ == '__main__':
+    grid = [[0] * 20 for _ in range(20)]  # 20x20 grid with all free cells
+    start = (0, 0)
+    goal = (10, 10)
+    navigator = JerryNavigator(grid, start, goal)
+    navigator.run()
