@@ -32,6 +32,13 @@ class ObjectDetection:
 
         self.bounding = None
 
+        # Initialize smoothing values for the block center
+        self.smoothed_center_x = 320  # Initial center is the middle of the image (640x480)
+        self.smoothed_center_y = 240  # Initial center is the middle of the image (640x480)
+
+        # Set the refresh rate to 10Hz
+        self.rate = rospy.Rate(10)  
+
     def image_callback(self, msg):
         # Convert the incoming ROS Image message to OpenCV format
         cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
@@ -74,6 +81,14 @@ class ObjectDetection:
             return max(contours, key=cv2.contourArea)
         return None  # Return None if no blocks are detected
 
+    def smooth_center(self, block_center_x, block_center_y):
+        # Apply exponential smoothing (simple moving average)
+        alpha = 0.5  # Smoothing factor (0.0 = no smoothing, 1.0 = no smoothing)
+        self.smoothed_center_x = alpha * block_center_x + (1 - alpha) * self.smoothed_center_x
+        self.smoothed_center_y = alpha * block_center_y + (1 - alpha) * self.smoothed_center_y
+
+        return self.smoothed_center_x, self.smoothed_center_y
+
     def move_to_block(self, cv_image, block):
         # Get the bounding box of the largest contour (the detected block)
         x, y, w, h = cv2.boundingRect(block)
@@ -83,31 +98,35 @@ class ObjectDetection:
         block_center_x = x + w / 2
         block_center_y = y + h / 2
 
+        # Smooth the center positions
+        smoothed_block_center_x, smoothed_block_center_y = self.smooth_center(block_center_x, block_center_y)
+
         # Assume the robot’s camera is aligned with the robot's center
-        rospy.loginfo(f"Block detected at (x, y): ({block_center_x}, {block_center_y})")
+        rospy.loginfo(f"Smoothed block detected at (x, y): ({smoothed_block_center_x}, {smoothed_block_center_y})")
 
         # Define the tolerance range for the center of the image
-        tolerance_x = 20  # Adjust as necessary for stability
-        tolerance_y = 20  # Adjust as necessary for stability
+        tolerance_x = 50  # Adjust as necessary for stability
+        tolerance_y = 50  # Adjust as necessary for stability
 
         # Create a Twist message for velocity control
         move_command = Twist()
 
-        # Adjust the robot's movement based on the bounding box position
-        if abs(block_center_x - 320) > tolerance_x:
+        # Adjust the robot's movement based on the smoothed bounding box position
+        if abs(smoothed_block_center_x - 320) > tolerance_x:
             # Adjust angular speed to turn towards the block
-            if block_center_x < 320:
-                move_command.angular.z = 0.5  # Turn left
-                rospy.loginfo("Turning left")
-            else:
+            if smoothed_block_center_x < 320:
                 move_command.angular.z = -0.5  # Turn right
                 rospy.loginfo("Turning right")
+            else:
+                move_command.angular.z = 0.5  # Turn left
+                rospy.loginfo("Turning left")
+                
         else:
             move_command.angular.z = 0  # Stop turning when centered
 
         # Adjust linear speed to move forward or backward
-        if abs(block_center_y - 240) > tolerance_y:
-            if block_center_y < 240:
+        if abs(smoothed_block_center_y - 240) > tolerance_y:
+            if smoothed_block_center_y < 240:
                 move_command.linear.x = -0.5  # Move backward
                 rospy.loginfo("Moving backward")
             else:
