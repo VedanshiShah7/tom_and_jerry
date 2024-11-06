@@ -50,8 +50,8 @@ class ObjectDetection:
         hsv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
 
         # Define the HSV color range for red detection (these values may need tweaking)
-        lower_red = (0, 100, 100)
-        upper_red = (10, 255, 255)
+        lower_red = (74, 105, 129)
+        upper_red = (180, 255, 255)
 
         # Create a mask that only includes the specified color range
         mask = cv2.inRange(hsv_image, lower_red, upper_red)
