@@ -6,6 +6,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
 from geometry_msgs.msg import Point, Twist
+import math
 
 class ObjectDetection:
     def __init__(self):
@@ -37,11 +38,14 @@ class ObjectDetection:
         self.smoothed_center_y = 240  # Initial center is the middle of the image (640x480)
 
         # Set the refresh rate to 10Hz
-        self.rate = rospy.Rate(10)  
+        self.rate = rospy.Rate(10)
 
     def image_callback(self, msg):
         # Convert the incoming ROS Image message to OpenCV format
         cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+        # Rotate the image to correct for the upside-down orientation
+        cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
 
         # Run object detection to find blocks
         detected_block = self.detect_block(cv_image)
@@ -98,51 +102,81 @@ class ObjectDetection:
         block_center_x = x + w / 2
         block_center_y = y + h / 2
 
+        # Flip the y-coordinate (since the camera is upside down)
+        inverted_block_center_y = 480 - block_center_y  # Image height = 480 (for 640x480 resolution)
+
         # Smooth the center positions
-        smoothed_block_center_x, smoothed_block_center_y = self.smooth_center(block_center_x, block_center_y)
+        smoothed_block_center_x, smoothed_block_center_y = self.smooth_center(block_center_x, inverted_block_center_y)
 
         # Assume the robot’s camera is aligned with the robot's center
         rospy.loginfo(f"Smoothed block detected at (x, y): ({smoothed_block_center_x}, {smoothed_block_center_y})")
 
-        # Define the tolerance range for the center of the image
-        tolerance_x = 50  # Adjust as necessary for stability
-        tolerance_y = 50  # Adjust as necessary for stability
+        # Define a proximity threshold for stopping (in pixels)
+        proximity_threshold = 180  # Pixel distance from the block center at which to stop (adjusted to 180px)
+
+        # Calculate the Euclidean distance from the block center to the image center
+        distance_to_block = math.sqrt((smoothed_block_center_x - 320) ** 2 + (smoothed_block_center_y - 240) ** 2)
 
         # Create a Twist message for velocity control
         move_command = Twist()
 
-        # Adjust the robot's movement based on the smoothed bounding box position
-        if abs(smoothed_block_center_x - 320) > tolerance_x:
-            # Adjust angular speed to turn towards the block
-            if smoothed_block_center_x < 320:
-                move_command.angular.z = -0.5  # Turn right
-                rospy.loginfo("Turning right")
-            else:
-                move_command.angular.z = 0.5  # Turn left
-                rospy.loginfo("Turning left")
-                
+        # If the robot is close enough to the block, stop moving
+        if distance_to_block < proximity_threshold:
+            move_command.linear.x = 0  # Stop moving forward/backward
+            move_command.angular.z = 0  # Stop turning
+            rospy.loginfo("Block is close enough, stopping the robot.")
         else:
-            move_command.angular.z = 0  # Stop turning when centered
+            # Adjust the robot's movement based on the smoothed bounding box position
+            tolerance_x = 50  # Adjust as necessary for stability
+            tolerance_y = 50  # Adjust as necessary for stability
 
-        # Adjust linear speed to move forward or backward
-        if abs(smoothed_block_center_y - 240) > tolerance_y:
-            if smoothed_block_center_y < 240:
-                move_command.linear.x = -0.5  # Move backward
-                rospy.loginfo("Moving backward")
+            if abs(smoothed_block_center_x - 320) > tolerance_x:
+                # Adjust angular speed to turn towards the block (smaller adjustments)
+                angular_speed = 0.5 * (smoothed_block_center_x - 320) / 320  # Normalize the speed to avoid large turns
+                move_command.angular.z = -angular_speed  # Reverse direction since the camera is upside down
+                rospy.loginfo(f"Adjusting angular velocity: {move_command.angular.z}")
             else:
-                move_command.linear.x = 0.5  # Move forward
-                rospy.loginfo("Moving forward")
-        else:
-            move_command.linear.x = 0  # Stop moving forward/backward when centered
+                move_command.angular.z = 0  # Stop turning when centered
 
-        # Publish the velocity command
+            # Adjust linear speed to move forward or backward
+            if abs(smoothed_block_center_y - 240) > tolerance_y:
+                if smoothed_block_center_y < 240:
+                    move_command.linear.x = -0.5  # Move backward
+                    rospy.loginfo("Moving backward")
+                else:
+                    move_command.linear.x = 0.5  # Move forward 
+                    rospy.loginfo("Moving forward")
+                    
+            else:
+                move_command.linear.x = 0  # Stop moving forward/backward when centered
+
+        # Apply smoothing to velocity command to avoid sudden jumps
+        if not hasattr(self, 'prev_linear_x'):
+            self.prev_linear_x = 0
+            self.prev_angular_z = 0
+
+        # Smooth the movement commands
+        alpha = 0.5  # Smooth factor for linear and angular velocities
+        move_command.linear.x = alpha * move_command.linear.x + (1 - alpha) * self.prev_linear_x
+        move_command.angular.z = alpha * move_command.angular.z + (1 - alpha) * self.prev_angular_z
+
+        # Store the current velocities for future smoothing
+        self.prev_linear_x = move_command.linear.x
+        self.prev_angular_z = move_command.angular.z
+
+        # Publish the smoothed velocity command
         self.velocity_pub.publish(move_command)
 
         # Show the image with the bounding box
         cv2.rectangle(cv_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+        # Display the distance on the image
+        cv2.putText(cv_image, f"Distance: {distance_to_block:.2f} px", (x, y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+        # Show the image with the bounding box and distance
         cv2.imshow("Bounding Box", cv_image)
         cv2.waitKey(10)
-
 
     def toggle_claw(self, command):
         # Publish the command to open or close the claw
