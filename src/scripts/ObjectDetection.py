@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
 import rospy
-from std_msgs.msg import String  # Import String for claw commands
-from sensor_msgs.msg import Image  # Assuming we are using images for object detection
+from std_msgs.msg import String
+from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
-import math
+from geometry_msgs.msg import Point  # For publishing the bounding box center
 
 class ObjectDetection:
     def __init__(self):
@@ -16,7 +16,7 @@ class ObjectDetection:
         self.servo_pub = rospy.Publisher('/servo', String, queue_size=1)
 
         # Subscribe to the camera images to detect blocks
-        self.image_sub = rospy.Subscriber('/camera/image_raw', Image, self.image_callback)
+        self.image_sub = rospy.Subscriber('/cv_camera/image_raw', Image, self.image_callback)
 
         # Initialize CvBridge to convert ROS images to OpenCV format
         self.bridge = CvBridge()
@@ -24,24 +24,25 @@ class ObjectDetection:
         # Create a publisher for the robot's movement commands (Assumed topic)
         self.velocity_pub = rospy.Publisher('/cmd_vel', String, queue_size=1)
 
+        # Publisher to send the bounding box coordinates (center)
+        self.bounding_box_pub = rospy.Publisher('/bounding_box', Point, queue_size=1)
+
+        self.bounding = None
+
     def image_callback(self, msg):
         # Convert the incoming ROS Image message to OpenCV format
         cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
 
         # Run object detection to find blocks
         detected_block = self.detect_block(cv_image)
+        print(detected_block)
 
-        if detected_block:
-            # Move to the detected block's position
-            self.move_to_block(detected_block)
+        if detected_block is not None:
+            # Get the bounding box and display it
+            self.move_to_block(cv_image, detected_block)
 
-            # Command the claw to open to pick up the block
-            self.toggle_claw("open")  # Send command to open the claw
-            rospy.sleep(1)  # Wait for the claw to open
-            
-            # Command the claw to close to grab the block
-            self.toggle_claw("close")  # Send command to close the claw
-            rospy.sleep(1)  # Wait for the claw to close
+            rospy.sleep(1)  # Wait for the claw to close if applicable
+
 
     def detect_block(self, cv_image):
         # Simple color detection logic (this example is for red blocks)
@@ -63,22 +64,34 @@ class ObjectDetection:
             return max(contours, key=cv2.contourArea)
         return None  # Return None if no blocks are detected
 
-    def move_to_block(self, block):
+    def move_to_block(self, cv_image, block):
         # Get the bounding box of the largest contour (the detected block)
         x, y, w, h = cv2.boundingRect(block)
+        self.bounding = (x, y, w, h)
+
+        # Debugging: Check if bounding box coordinates are correct
+        rospy.loginfo(f"Bounding box: x={x}, y={y}, w={w}, h={h}")
+
+        # Ensure that bounding box coordinates are valid
+        if w > 0 and h > 0:
+            # Draw the bounding box on the image (green color with 2-pixel thickness)
+            cv2.rectangle(cv_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+            # Publish the center of the bounding box to the new topic
+            bounding_box_center = Point()
+            bounding_box_center.x = x + w / 2
+            bounding_box_center.y = y + h / 2
+            bounding_box_center.z = 0  # You could use depth if you have it
+            self.bounding_box_pub.publish(bounding_box_center)
 
         # Calculate the center of the block
         block_center_x = x + w / 2
         block_center_y = y + h / 2
 
         # Assume the robot’s camera is aligned with the robot's center
-        # You will need to adjust the movement logic based on your robot's design
         rospy.loginfo(f"Block detected at (x, y): ({block_center_x}, {block_center_y})")
 
         # Simple movement logic to move towards the block
-        # (This should be replaced with more sophisticated path planning/movement control)
-
-        # Calculate robot's required movement direction
         move_command = String()
         if block_center_x < 320:  # Assuming 640x480 resolution and the block is left
             move_command.data = "move_left"
@@ -91,6 +104,12 @@ class ObjectDetection:
 
         # Publish the movement command (you'll need to implement robot movement logic)
         self.velocity_pub.publish(move_command)
+
+        # Show the image with the bounding box
+        cv2.imshow("Bounding Box", cv_image)  # Show the image with bounding box
+        cv2.waitKey(10)  # Wait for 10ms for the window to update
+
+
 
     def toggle_claw(self, command):
         # Publish the command to open or close the claw
