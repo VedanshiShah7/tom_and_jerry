@@ -99,11 +99,8 @@ class ObjectDetection:
         block_center_x = x + w / 2
         block_center_y = y + h / 2
 
-        # Flip the y-coordinate (since the camera is upside down)
-        inverted_block_center_y = 480 - block_center_y  # Image height = 480 (for 640x480 resolution)
-
-        # Smooth the center positions
-        smoothed_block_center_x, smoothed_block_center_y = self.smooth_center(block_center_x, inverted_block_center_y)
+        # Remove the inversion of the y-coordinate (no longer flipping)
+        smoothed_block_center_x, smoothed_block_center_y = self.smooth_center(block_center_x, block_center_y)
 
         # Assume the robot’s camera is aligned with the robot's center
         rospy.loginfo(f"Smoothed block detected at (x, y): ({smoothed_block_center_x}, {smoothed_block_center_y})")
@@ -130,7 +127,7 @@ class ObjectDetection:
             if abs(smoothed_block_center_x - 320) < tolerance_x:
                 # Adjust angular speed to turn towards the block (smaller adjustments)
                 angular_speed = 0.5 * (smoothed_block_center_x - 320) / 320  # Normalize the speed to avoid large turns
-                move_command.angular.z = angular_speed  
+                move_command.angular.z = - angular_speed  
                 rospy.loginfo(f"Adjusting angular velocity: {move_command.angular.z}")
             else:
                 move_command.angular.z = 0  # Stop turning when centered
@@ -138,14 +135,12 @@ class ObjectDetection:
 
             # Adjust linear speed to move forward or backward
             if abs(smoothed_block_center_y - 240) < tolerance_y:
-                if smoothed_block_center_y < 240:
+                if smoothed_block_center_y > 240:
                     move_command.linear.x = 0.5  # Move forward 
                     rospy.loginfo("Moving forward")
                 else:
                     move_command.linear.x = -0.5  # Move backward
                     rospy.loginfo("Moving backward")
-                    
-                    
             else:
                 move_command.linear.x = 0  # Stop moving forward/backward when centered
 
@@ -176,6 +171,8 @@ class ObjectDetection:
         # Show the image with the bounding box and distance
         cv2.imshow("Bounding Box", cv_image)
         cv2.waitKey(10)
+
+
 
     def toggle_claw(self, command):
         # Publish the command to open or close the claw
