@@ -44,9 +44,6 @@ class ObjectDetection:
         # Convert the incoming ROS Image message to OpenCV format
         cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
 
-        # Rotate the image to correct for the upside-down orientation
-        cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
-
         # Run object detection to find blocks
         detected_block = self.detect_block(cv_image)
 
@@ -112,7 +109,7 @@ class ObjectDetection:
         rospy.loginfo(f"Smoothed block detected at (x, y): ({smoothed_block_center_x}, {smoothed_block_center_y})")
 
         # Define a proximity threshold for stopping (in pixels)
-        proximity_threshold = 180  # Pixel distance from the block center at which to stop (adjusted to 180px)
+        proximity_threshold = 5  # Pixel distance from the block center at which to stop (adjusted to 180px)
 
         # Calculate the Euclidean distance from the block center to the image center
         distance_to_block = math.sqrt((smoothed_block_center_x - 320) ** 2 + (smoothed_block_center_y - 240) ** 2)
@@ -130,22 +127,24 @@ class ObjectDetection:
             tolerance_x = 50  # Adjust as necessary for stability
             tolerance_y = 50  # Adjust as necessary for stability
 
-            if abs(smoothed_block_center_x - 320) > tolerance_x:
+            if abs(smoothed_block_center_x - 320) < tolerance_x:
                 # Adjust angular speed to turn towards the block (smaller adjustments)
                 angular_speed = 0.5 * (smoothed_block_center_x - 320) / 320  # Normalize the speed to avoid large turns
-                move_command.angular.z = -angular_speed  # Reverse direction since the camera is upside down
+                move_command.angular.z = angular_speed  
                 rospy.loginfo(f"Adjusting angular velocity: {move_command.angular.z}")
             else:
                 move_command.angular.z = 0  # Stop turning when centered
+                rospy.loginfo(f"not turning!")
 
             # Adjust linear speed to move forward or backward
-            if abs(smoothed_block_center_y - 240) > tolerance_y:
+            if abs(smoothed_block_center_y - 240) < tolerance_y:
                 if smoothed_block_center_y < 240:
-                    move_command.linear.x = -0.5  # Move backward
-                    rospy.loginfo("Moving backward")
-                else:
                     move_command.linear.x = 0.5  # Move forward 
                     rospy.loginfo("Moving forward")
+                else:
+                    move_command.linear.x = -0.5  # Move backward
+                    rospy.loginfo("Moving backward")
+                    
                     
             else:
                 move_command.linear.x = 0  # Stop moving forward/backward when centered
