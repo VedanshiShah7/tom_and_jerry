@@ -2,11 +2,12 @@
 
 import rospy
 from std_msgs.msg import String
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, LaserScan
 from cv_bridge import CvBridge
 import cv2
 from geometry_msgs.msg import Point, Twist
 import math
+import numpy as np
 
 class ObjectDetection:
     def __init__(self):
@@ -21,6 +22,9 @@ class ObjectDetection:
 
         # Subscribe to the camera images to detect blocks
         self.image_sub = rospy.Subscriber('/cv_camera/image_raw', Image, self.image_callback)
+
+        # Subscribe to the LiDAR data
+        self.lidar_sub = rospy.Subscriber('/scan', LaserScan, self.lidar_callback)
 
         # Initialize CvBridge to convert ROS images to OpenCV format
         self.bridge = CvBridge()
@@ -37,8 +41,15 @@ class ObjectDetection:
         self.smoothed_center_x = 320  # Initial center is the middle of the image (640x480)
         self.smoothed_center_y = 240  # Initial center is the middle of the image (640x480)
 
+        # Initialize LiDAR data
+        self.lidar_data = None
+
         # Set the refresh rate to 10Hz
         self.rate = rospy.Rate(10)
+
+    def lidar_callback(self, msg):
+        # Store the LiDAR distance data
+        self.lidar_data = msg.ranges
 
     def image_callback(self, msg):
         # Convert the incoming ROS Image message to OpenCV format
@@ -90,6 +101,19 @@ class ObjectDetection:
 
         return self.smoothed_center_x, self.smoothed_center_y
 
+    def check_obstacle_ahead(self):
+        # If LiDAR data is available, check if there's an obstacle within a threshold distance (e.g., 1 meter)
+        if self.lidar_data:
+            # Check the front part of the LiDAR scan (centered at the middle of the LiDAR range)
+            front_data = self.lidar_data[len(self.lidar_data)//2 - 10: len(self.lidar_data)//2 + 10]
+            
+            min_distance = np.mean(front_data)  # Get the closest distance from the front
+            rospy.loginfo(f"Obstacle distance: {min_distance} meters")  # Print the obstacle distance
+            
+            # If an obstacle is within 1 meter, return True
+            return min_distance < 0.05  # Threshold for obstacle distance
+        return False
+
     def move_to_block(self, cv_image, block):
         # Get the bounding box of the largest contour (the detected block)
         x, y, w, h = cv2.boundingRect(block)
@@ -110,6 +134,15 @@ class ObjectDetection:
 
         # Calculate the Euclidean distance from the block center to the image center
         distance_to_block = math.sqrt((smoothed_block_center_x - 320) ** 2 + (smoothed_block_center_y - 240) ** 2)
+
+        # Check for obstacles in front of the robot
+        if self.check_obstacle_ahead():
+            rospy.loginfo("Obstacle detected in front, stopping robot.")
+            move_command = Twist()
+            move_command.linear.x = 0  # Stop moving forward
+            move_command.angular.z = 0  # Stop turning
+            self.velocity_pub.publish(move_command)
+            return
 
         # Create a Twist message for velocity control
         move_command = Twist()
@@ -154,35 +187,25 @@ class ObjectDetection:
         move_command.linear.x = alpha * move_command.linear.x + (1 - alpha) * self.prev_linear_x
         move_command.angular.z = alpha * move_command.angular.z + (1 - alpha) * self.prev_angular_z
 
-        # Store the current velocities for future smoothing
+        # Store previous values for next iteration
         self.prev_linear_x = move_command.linear.x
         self.prev_angular_z = move_command.angular.z
 
-        # Publish the smoothed velocity command
+        # Publish the velocity command to move the robot
         self.velocity_pub.publish(move_command)
 
-        # Show the image with the bounding box
-        cv2.rectangle(cv_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        # Publish bounding box center for debugging purposes
+        self.bounding_box_pub.publish(Point(smoothed_block_center_x, smoothed_block_center_y, 0))
 
-        # Display the distance on the image
-        cv2.putText(cv_image, f"Distance: {distance_to_block:.2f} px", (x, y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-        # Show the image with the bounding box and distance
-        cv2.imshow("Bounding Box", cv_image)
-        cv2.waitKey(10)
-
-
-
-    def toggle_claw(self, command):
-        # Publish the command to open or close the claw
-        self.servo_pub.publish(command)  # Send the command string
-        rospy.loginfo(f"Claw command sent: {command}")  # Log the command for debugging
-        rospy.sleep(0.5)  # Adding a small delay to ensure claw has time to move
+        # Display the result in the OpenCV window
+        cv2.rectangle(cv_image, (x, y), (x + w, y + h), (0, 255, 0), 2)  # Draw the bounding box
+        cv2.imshow("Detected Block", cv_image)  # Ensure the window is shown
+        cv2.waitKey(1)  # Add waitKey to update the window
 
 if __name__ == '__main__':
     try:
-        robot = ObjectDetection()  # Create an instance of the robot
-        rospy.spin()  # Keep the node running
+        # Instantiate the object detection class to start processing
+        detector = ObjectDetection()
+        rospy.spin()
     except rospy.ROSInterruptException:
-        pass  # Handle ROS interruption exceptions gracefully
+        pass
