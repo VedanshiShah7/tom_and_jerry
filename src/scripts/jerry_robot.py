@@ -5,169 +5,183 @@ from geometry_msgs.msg import Twist, Point
 from sensor_msgs.msg import LaserScan
 import math
 
-# Wall-following state
-class WallFollowingState:
-    def __init__(self):
-        self.following_wall = False  # Whether the robot is in wall-following mode
-        self.wall_side = None  # The side of the wall being followed ('left' or 'right')
-        self.in_corridor = False  # Whether the robot is in a corridor
+# Subdivision of angles in the lidar scanner
+ANGLE_THRESHOLD = 45
+# Obstacle threshhold, objects below this distance are considered obstacles
+OBJ_THRESHOLD = 0.45
+# K Value for Linear Velocity P-Controller
+K_LIN = 0.7
+# K Value for Angular Velocity P-Controller
+K_ANG = 1.0
 
 class JerryRobot():
-    def __init__(self, target_x, target_y):
+    def __init__(self, goal_x, goal_y):
         self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.my_odom_sub = rospy.Subscriber('my_odom', Point, self.odom_cb)
         self.scan_sub = rospy.Subscriber('/scan', LaserScan, self.scan_cb)
-        # Current heading of the robot.
-        self.x = None
-        self.y = None
+        # Current x, y, and yaw of the robot.
+        self.cur_x = None
+        self.cur_y = None
         self.cur_yaw = None
-        self.target_x = target_x
-        self.target_y = target_y
-        self.wall_following_state = WallFollowingState()
-        self.v = 0
-        self.w = 0
+        # Goal coordinate to be reached
+        self.goal_x = goal_x
+        self.goal_y = goal_y
+        # If an object is detected in front of robot, "obstacle_detected" is set to True,
+        # and an avoid_angular_vel is calculated to avoid the obstacle
+        self.robot_state = {"obstacle_detected": False, "avoid_angular_vel": 0}
+        # div_distance keeps track of the LIDAR distances in each region,
+        # 0 is the front region, 1 is front-left, 2 is left, etc.
+        self.div_distance = {"0": [], "1": [], "2": [], "3": [], "4": [], "5": [], "6": [], "7": []}
+        # div_cost calculates the cost of region based on how far it is from 0, and the sign gives the direction
+        self.div_cost = {"0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": -3, "6": -2, "7": -1}
+        # Measure the previous angle/yaw of the robot
+        self.last_angle = 0
+        # Distance between robot and goal coordinate
+        self.distance_to_goal = None
     
     def odom_cb(self, msg):
         """Callback function for `self.my_odom_sub`."""
-        self.x = msg.y
-        self.y = msg.x
+        self.cur_x = msg.y
+        self.cur_y = msg.x
         # msg.z is the angular z i.e. yaw of the robot
         self.cur_yaw = msg.z
-    
-    # Function to calculate Euclidean distance between current position and target
-    def distance_to_target(self):
-        return math.sqrt((self.target_x - self.x)**2 + (self.target_y - self.y)**2)
-
-    # Function to calculate the angle between the robot's heading and the target
-    def angle_to_target(self):
-        return math.atan2(self.target_x - self.x, self.target_y - self.y)
-
-    # Function to detect if a wall is present based on LIDAR scan
-    def is_wall(self, lidar_scan, wall_threshold=0.05, min_points=5):
-        """
-        Detect if there is a wall by checking if a consecutive set of LIDAR values
-        fall within a small range, indicating a flat surface.
-        """
-        consecutive_points = 0
-        for i in range(len(lidar_scan) - 1):
-            if abs(lidar_scan[i] - lidar_scan[i+1]) < wall_threshold:
-                consecutive_points += 1
-            else:
-                consecutive_points = 0
-            
-            if consecutive_points >= min_points:
-                return True
-        return False
-
-    # Function to calculate obstacle avoidance with wall following
-    def obstacle_avoidance(self, lidar_scan, min_distance=1.0, wall_threshold=0.05):
-        front_scan = lidar_scan[0:30] + lidar_scan[330:360]  # Approx front section (20 degrees on either side)
-        left_scan = lidar_scan[60:180]  # Approx left region
-        right_scan = lidar_scan[180:300]  # Approx right region
-        min_front_distance = min(front_scan)
-        min_left_distance = min(left_scan)
-        min_right_distance = min(right_scan)
-
-        # Check if we are in a corridor (walls on both sides)
-        if min_left_distance < min_distance and min_right_distance < min_distance:
-            self.wall_following_state.in_corridor = True
-            self.wall_following_state.following_wall = False
-
-            # Try to stay centered in the corridor
-            if min_left_distance > min_right_distance:
-                return 0.5  # Turn slightly right to center
-            else:
-                return -0.5  # Turn slightly left to center
-        else:
-            self.wall_following_state.in_corridor = False
-
-        # If obstacle is too close in the front, avoid or follow a wall
-        if min_front_distance < min_distance:
-            if self.is_wall(lidar_scan):
-                if self.wall_following_state.following_wall:
-                    if self.wall_following_state.wall_side == 'left':
-                        return 0.5  # Continue slight right turn to follow the wall on the left
-                    else:
-                        return -0.5  # Continue slight left turn to follow the wall on the right
-                else:
-                    # Determine which side to follow
-                    if min_left_distance < min_right_distance:
-                        self.wall_following_state.following_wall = True
-                        self.wall_following_state.wall_side = 'left'
-                        return 0.5  # Follow wall on the left
-                    else:
-                        self.wall_following_state.following_wall = True
-                        self.wall_following_state.wall_side = 'right'
-                        return -0.5  # Follow wall on the right
-            else:
-                # Isolated obstacle avoidance
-                if min_left_distance < min_right_distance:
-                    self.wall_following_state.following_wall = False
-                    return 1.0  # Turn right (positive angular velocity)
-                else:
-                    self.wall_following_state.following_wall = False
-                    return -1.0  # Turn left (negative angular velocity)
-
-        # No obstacle in front, but still wall-following or corridor-following
-        if self.wall_following_state.following_wall:
-            side_scan = left_scan if self.wall_following_state.wall_side == 'left' else right_scan
-            if min(side_scan) > min_distance:
-                self.wall_following_state.following_wall = False  # Stop following if clear
-            else:
-                return 0.5 if self.wall_following_state.wall_side == 'left' else -0.5
-
-        return 0  # No obstacle, no angular adjustment
-
-    # Main function to compute velocities for target navigation and obstacle avoidance
-    def compute_control(self, lidar_scan):
-        # Parameters
-        max_linear_velocity = 0.3  # Max forward speed
-        max_angular_velocity = 0.4  # Max turn rate
-        distance_threshold = 0.1  # Distance at which to stop near the target
-
-        # Distance and angle to target
-        distance = self.distance_to_target()
-        target_angle = self.angle_to_target()
-        
-        # Compute the angle difference (heading error) between the robot's orientation and the target
-        angle_diff = target_angle - self.cur_yaw
-        angle_diff = math.atan2(math.sin(angle_diff), math.cos(angle_diff))  # Normalize to [-pi, pi]
-
-        # Initialize control signals
-        linear_velocity = 0.0
-        angular_velocity = 0.0
-
-        # If far from target, move towards it
-        if distance > distance_threshold:
-            # Proportional control for target approach
-            linear_velocity = max_linear_velocity * (distance / max(distance, 1.0))  # Adjust speed based on distance
-            angular_velocity = max_angular_velocity * angle_diff  # Proportional control for orientation
-
-            # Obstacle avoidance and wall-following logic
-            avoidance_angular_velocity = self.obstacle_avoidance(lidar_scan)
-            if avoidance_angular_velocity != 0:
-                # Prioritize obstacle avoidance or wall following over target navigation
-                angular_velocity = avoidance_angular_velocity
-                linear_velocity = 0.2  # Slow down when avoiding obstacles or following walls
-
-        return linear_velocity, angular_velocity
+        # compute the distance from the current position to the goal
+        self.distance_to_goal = math.hypot(self.goal_x - msg.y, self.goal_y - msg.x)
     
     def scan_cb(self, msg):
-        self.v, self.w = self.compute_control(msg.ranges)
+        for key in self.div_distance.keys():
+            values = []
+            if key == "0":
+                # The front region is wider compared to the other regions (60 vs 45),
+                # because we need to avoid obstacles in the front
+                for x in msg.ranges[330:360]:
+                    if x <= OBJ_THRESHOLD and not(math.isinf(x)):
+                        values.append(x)
+                for x in msg.ranges[0:30]:
+                    if x <= OBJ_THRESHOLD and not(math.isinf(x)):
+                        values.append(x)
+            else:
+                for x in msg.ranges[23 + ANGLE_THRESHOLD*(int(key)-1) : 23 + ANGLE_THRESHOLD*int(key)]: 
+                    if x <= OBJ_THRESHOLD and not(math.isinf(x)):
+                        values.append(x)
+            self.div_distance[key] = values
+    
+    def calc_robot_state(self):
+        nearest = 9999999
+        region_diff = 0
+        # Regional differences are calculated relative to the front region
+        goal = "0"
+        # The 4th region gives the highest regional diff so we start with that
+        max_destination = "4"
+        max_distance = 0.0000001
+
+        for key, value in self.div_distance.items():
+            region_diff = abs(self.div_cost[key] - self.div_cost[goal])
+            
+            # If there're no obstacles in that region
+            if not len(value):
+                # Find the obstacle-free region closest to the front
+                if (region_diff < nearest):
+                    nearest = region_diff
+                    max_distance = OBJ_THRESHOLD
+                    max_destination = key
+            # Check if the region is the most "obstacle-free", i.e. the LIDAR distance is the highest
+            elif max(value) > max_distance:
+                max_distance = max(value)
+                max_destination = key
+
+        # Difference between the most obstacle-free region and the front
+        region_diff = self.div_cost[max_destination] - self.div_cost[goal]
+
+        # If the obstacle free path closest to the front is not the front (i.e. nearest != 0),
+        # this means that there is an obstacle in the front
+        self.robot_state["obstacle_detected"] = (nearest != 0)
+        # The avoid_angular_vel is 0.7, and it's sign is the same as the sign of the regional difference
+        # We do the max(1, ) thing to avoid division by 0 when the regional difference is 0
+        self.robot_state["avoid_angular_vel"] = ((region_diff/max(1, abs(region_diff))) * 0.7)
+    
+    # This function is called when the robot is about to collide into an obstacle
+    # The robot will turn back according to the avoid_angular_vel calculated
+    def avoid_obstacle(self):
+        angular_velocity = self.robot_state["avoid_angular_vel"]
+        # After detecting an obstacle, the robot will back up a bit while rotating to point in a new direction
+        velocity = Twist()
+        velocity.linear.x = -0.1
+        velocity.angular.z = angular_velocity
+        return velocity
+    
+    def go_to_goal(self):
+        current_angle = self.cur_yaw
+    
+        x_start = self.cur_x
+        y_start = self.cur_y
+        angle_to_goal = math.atan2(self.goal_x - x_start, self.goal_y - y_start)
+
+        # Convert the range of angle_to_goal to be from 0 to 2pi, instead of -pi to pi as returned by math.atan2
+        if angle_to_goal < -math.pi/4 or angle_to_goal > math.pi/4:
+            if 0 > self.goal_y > y_start:
+                angle_to_goal = -2 * math.pi + angle_to_goal
+            elif 0 <= self.goal_y < y_start:
+                angle_to_goal = 2 * math.pi + angle_to_goal
+        
+        # Adjust current_angle to be from 0 to 2pi
+        if self.last_angle > math.pi - 0.1 and current_angle <= 0:
+            current_angle = 2 * math.pi + current_angle
+        elif self.last_angle < -math.pi + 0.1 and current_angle > 0:
+            current_angle = -2 * math.pi + current_angle
+
+        # proportional control for rotating the robot
+        velocity_msg = Twist()
+        velocity_msg.angular.z = K_ANG * (angle_to_goal - current_angle)
+        
+        # P-Controller for Linear Velocity, with a maximum of 0.3
+        velocity_msg.linear.x = min(K_LIN * self.distance_to_goal, 0.3)
+
+        # Bound the angular velocity between -0.5 and 0.5
+        if velocity_msg.angular.z > 0:
+            velocity_msg.angular.z = min(velocity_msg.angular.z, 0.5)
+        else:
+            velocity_msg.angular.z = max(velocity_msg.angular.z, -0.5)
+
+        # Update the last_angle for the next loop
+        self.last_angle = current_angle
+        
+        return velocity_msg
 
     def run(self):
-        rate = rospy.Rate(10)
-        twist = Twist()
-
-        while self.x is None and self.y is None:
+        while self.cur_x is None or self.cur_y is None or self.cur_yaw is None:
             pass
+        
+        rate = rospy.Rate(10)
+        self.distance_to_goal = math.hypot(self.goal_x - self.cur_x, self.goal_y - self.cur_y)
 
         while not rospy.is_shutdown():
-            twist.linear.x = self.v
-            twist.angular.z = self.w
-            self.cmd_vel_pub.publish(twist)
-            rate.sleep()
+            # Keep the robot running until we are very close to goal (9cm)
+            while self.distance_to_goal > 0.09:
+                # Log the robot's state and distance to goal
+                rospy.loginfo("Distance to goal {0}".format(self.distance_to_goal))
+                rospy.loginfo("Robot state {0}".format(self.robot_state))
+
+                if self.distance_to_goal < 0.15:
+                    # If we're close enough to goal, move directly towards goal
+                    vel = self.go_to_goal()
+                else:
+                    self.calc_robot_state()
+                    if self.robot_state["obstacle_detected"]:
+                        vel = self.avoid_obstacle()
+                    else:
+                        vel = self.go_to_goal()
+
+                self.cmd_vel_pub.publish(vel)
+                rate.sleep()
+            
+            rospy.loginfo("Goal Reached")
+            velocity_msg = Twist()
+            velocity_msg.linear.x = 0
+            velocity_msg.angular.z = 0
+            self.cmd_vel_pub.publish(velocity_msg)
+            break
 
 if __name__ == '__main__':
     rospy.init_node('jerry_robot', anonymous=True)
-    JerryRobot(0, 3).run()
+    JerryRobot(0, 4).run()
