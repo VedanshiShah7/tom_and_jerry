@@ -23,6 +23,8 @@ class JerryRobot():
         self.cur_x = None
         self.cur_y = None
         self.cur_yaw = None
+        self.start_x = None
+        self.start_y = None
         # Goal coordinate to be reached
         self.goal_x = goal_x
         self.goal_y = goal_y
@@ -43,10 +45,17 @@ class JerryRobot():
         """Callback function for `self.my_odom_sub`."""
         self.cur_x = msg.y
         self.cur_y = msg.x
+        if self.start_x is None:
+            self.start_x = msg.y
+        if self.start_y is None:
+            self.start_y = msg.x
+        if self.start_x is not None and self.start_y is not None:
+            self.cur_x = msg.y - self.start_x
+            self.cur_y = msg.x - self.start_y
         # msg.z is the angular z i.e. yaw of the robot
         self.cur_yaw = msg.z
         # compute the distance from the current position to the goal
-        self.distance_to_goal = math.hypot(self.goal_x - msg.y, self.goal_y - msg.x)
+        self.distance_to_goal = math.hypot(self.goal_x - self.cur_x, self.goal_y - self.cur_y)
     
     def scan_cb(self, msg):
         for key in self.div_distance.keys():
@@ -54,15 +63,12 @@ class JerryRobot():
             if key == "0":
                 # The front region is wider compared to the other regions (60 vs 45),
                 # because we need to avoid obstacles in the front
-                for x in msg.ranges[330:360]:
-                    if x <= OBJ_THRESHOLD and not(math.isinf(x)):
-                        values.append(x)
-                for x in msg.ranges[0:30]:
-                    if x <= OBJ_THRESHOLD and not(math.isinf(x)):
+                for x in msg.ranges[int((330/360) * len(msg.ranges)):] + msg.ranges[:int((30/360) * len(msg.ranges))]:
+                    if x <= OBJ_THRESHOLD and not(math.isinf(x)) and not(math.isnan(x)) and x > msg.range_min:
                         values.append(x)
             else:
-                for x in msg.ranges[23 + ANGLE_THRESHOLD*(int(key)-1) : 23 + ANGLE_THRESHOLD*int(key)]: 
-                    if x <= OBJ_THRESHOLD and not(math.isinf(x)):
+                for x in msg.ranges[int((23/360) * len(msg.ranges)) + int((ANGLE_THRESHOLD/360) * len(msg.ranges)) * (int(key)-1) : int((23/360) * len(msg.ranges)) + int((ANGLE_THRESHOLD/360) * len(msg.ranges)) * int(key)]:
+                    if x <= OBJ_THRESHOLD and not(math.isinf(x)) and not(math.isnan(x)) and x > msg.range_min:
                         values.append(x)
             self.div_distance[key] = values
     
@@ -153,14 +159,18 @@ class JerryRobot():
             pass
         
         rate = rospy.Rate(10)
+        self.goal_x += self.cur_x
+        self.goal_y += self.cur_y
         self.distance_to_goal = math.hypot(self.goal_x - self.cur_x, self.goal_y - self.cur_y)
 
         while not rospy.is_shutdown():
             # Keep the robot running until we are very close to goal (9cm)
-            while self.distance_to_goal > 0.09:
+            if self.distance_to_goal > 0.09:
                 # Log the robot's state and distance to goal
                 rospy.loginfo("Distance to goal {0}".format(self.distance_to_goal))
                 rospy.loginfo("Robot state {0}".format(self.robot_state))
+                rospy.loginfo("Div Distances {0}".format(self.div_distance))
+                rospy.loginfo("Current coordinates ({0}, {1})".format(self.cur_x, self.cur_y))
 
                 if self.distance_to_goal < 0.15:
                     # If we're close enough to goal, move directly towards goal
@@ -173,15 +183,16 @@ class JerryRobot():
                         vel = self.go_to_goal()
 
                 self.cmd_vel_pub.publish(vel)
-                rate.sleep()
+            else:
+                rospy.loginfo("Goal Reached")
+                velocity_msg = Twist()
+                velocity_msg.linear.x = 0
+                velocity_msg.angular.z = 0
+                self.cmd_vel_pub.publish(velocity_msg)
+                break
             
-            rospy.loginfo("Goal Reached")
-            velocity_msg = Twist()
-            velocity_msg.linear.x = 0
-            velocity_msg.angular.z = 0
-            self.cmd_vel_pub.publish(velocity_msg)
-            break
+            rate.sleep()
 
 if __name__ == '__main__':
     rospy.init_node('jerry_robot', anonymous=True)
-    JerryRobot(0, 4).run()
+    JerryRobot(4, 0).run()
