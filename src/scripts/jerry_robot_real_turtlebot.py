@@ -17,7 +17,7 @@ K_ANG = 1.0
 class JerryRobot():
     def __init__(self, goal_x, goal_y):
         self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
-        self.my_odom_sub = rospy.Subscriber('my_odom', Point, self.odom_cb)
+        self.my_odom_sub = rospy.Subscriber('jerry/odom', Point, self.odom_cb)
         self.scan_sub = rospy.Subscriber('/scan', LaserScan, self.scan_cb)
         # Current x, y, and yaw of the robot.
         self.cur_x = None
