@@ -126,8 +126,8 @@ class JerryRobot():
         elif self.prev_angle < -math.pi + 0.1 and current_angle > 0:
             current_angle = -2 * math.pi + current_angle
 
-        # proportional control for rotating the robot
         twist = Twist()
+        # P-Controller for Angular Velocity
         twist.angular.z = P_ANG * (angle_to_goal - current_angle)
         
         # P-Controller for Linear Velocity, with a maximum of 0.3
@@ -152,7 +152,7 @@ class JerryRobot():
 
         while not rospy.is_shutdown():
             # Keep the robot running until we are very close to goal (9cm)
-            while self.distance_to_goal > 0.09:
+            if self.distance_to_goal > 0.09:
                 # Log the robot's state and distance to goal
                 rospy.loginfo("Distance to goal {0}".format(self.distance_to_goal))
                 rospy.loginfo("Robot state {0}".format(self.robot_state))
@@ -168,14 +168,15 @@ class JerryRobot():
                         twist = self.head_to_goal()
 
                 self.cmd_vel_pub.publish(twist)
-                rate.sleep()
+            else:
+                rospy.loginfo("Goal Reached")
+                twist = Twist()
+                twist.linear.x = 0
+                twist.angular.z = 0
+                self.cmd_vel_pub.publish(twist)
+                break
             
-            rospy.loginfo("Goal Reached")
-            twist = Twist()
-            twist.linear.x = 0
-            twist.angular.z = 0
-            self.cmd_vel_pub.publish(twist)
-            break
+            rate.sleep()
 
 if __name__ == '__main__':
     rospy.init_node('jerry_robot', anonymous=True)
