@@ -17,7 +17,7 @@ K_ANG = 1.0
 class JerryRobot():
     def __init__(self, goal_x, goal_y):
         self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
-        self.my_odom_sub = rospy.Subscriber('my_odom', Point, self.odom_cb)
+        self.my_odom_sub = rospy.Subscriber('jerry/my_odom', Point, self.odom_cb)
         self.scan_sub = rospy.Subscriber('/scan', LaserScan, self.scan_cb)
         # Current x, y, and yaw of the robot.
         self.cur_x = None
@@ -121,78 +121,37 @@ class JerryRobot():
     
         x_start = self.cur_x
         y_start = self.cur_y
-        angle_to_goal = math.atan2(self.goal_x - x_start, self.goal_y - y_start)
+        # Final coordinates are given by goal_x and goal_y
+        goal = Twist()
 
-        # Convert the range of angle_to_goal to be from 0 to 2pi, instead of -pi to pi as returned by math.atan2
-        if angle_to_goal < -math.pi/4 or angle_to_goal > math.pi/4:
-            if 0 > self.goal_y > y_start:
-                angle_to_goal = -2 * math.pi + angle_to_goal
-            elif 0 <= self.goal_y < y_start:
-                angle_to_goal = 2 * math.pi + angle_to_goal
-        
-        # Adjust current_angle to be from 0 to 2pi
-        if self.last_angle > math.pi - 0.1 and current_angle <= 0:
-            current_angle = 2 * math.pi + current_angle
-        elif self.last_angle < -math.pi + 0.1 and current_angle > 0:
-            current_angle = -2 * math.pi + current_angle
+        angle_to_goal = math.atan2(self.goal_y - y_start, self.goal_x - x_start)
+        # Then we should turn robot facing goal coordinate
+        angular_velocity = angle_to_goal - current_angle
+        goal.linear.x = 0.2
+        goal.angular.z = angular_velocity
+        return goal
 
-        # proportional control for rotating the robot
-        velocity_msg = Twist()
-        velocity_msg.angular.z = K_ANG * (angle_to_goal - current_angle)
-        
-        # P-Controller for Linear Velocity, with a maximum of 0.3
-        velocity_msg.linear.x = min(K_LIN * self.distance_to_goal, 0.3)
-
-        # Bound the angular velocity between -0.5 and 0.5
-        if velocity_msg.angular.z > 0:
-            velocity_msg.angular.z = min(velocity_msg.angular.z, 0.5)
+    def update(self):
+        self.calc_robot_state()
+        if self.robot_state["obstacle_detected"]:
+            velocity = self.avoid_obstacle()
         else:
-            velocity_msg.angular.z = max(velocity_msg.angular.z, -0.5)
+            velocity = self.go_to_goal()
 
-        # Update the last_angle for the next loop
-        self.last_angle = current_angle
+        self.cmd_vel_pub.publish(velocity)
         
-        return velocity_msg
 
-    def run(self):
-        while self.cur_x is None or self.cur_y is None or self.cur_yaw is None:
-            pass
-        
-        rate = rospy.Rate(10)
-        self.goal_x += self.cur_x
-        self.goal_y += self.cur_y
-        self.distance_to_goal = math.hypot(self.goal_x - self.cur_x, self.goal_y - self.cur_y)
+def main():
+    rospy.init_node('jerry')
+    goal_x = float(input("Input goal x coordinate:"))
+    goal_y = float(input("Input goal y coordinate:"))
+    robot = JerryRobot(goal_x, goal_y)
+    rate = rospy.Rate(10) # 10Hz
 
-        while not rospy.is_shutdown():
-            # Keep the robot running until we are very close to goal (9cm)
-            if self.distance_to_goal > 0.09:
-                # Log the robot's state and distance to goal
-                rospy.loginfo("Distance to goal {0}".format(self.distance_to_goal))
-                rospy.loginfo("Robot state {0}".format(self.robot_state))
-                rospy.loginfo("Div Distances {0}".format(self.div_distance))
-                rospy.loginfo("Current coordinates ({0}, {1})".format(self.cur_x, self.cur_y))
+    while not rospy.is_shutdown():
+        robot.update()
+        rate.sleep()
 
-                if self.distance_to_goal < 0.15:
-                    # If we're close enough to goal, move directly towards goal
-                    vel = self.go_to_goal()
-                else:
-                    self.calc_robot_state()
-                    if self.robot_state["obstacle_detected"]:
-                        vel = self.avoid_obstacle()
-                    else:
-                        vel = self.go_to_goal()
-
-                self.cmd_vel_pub.publish(vel)
-            else:
-                rospy.loginfo("Goal Reached")
-                velocity_msg = Twist()
-                velocity_msg.linear.x = 0
-                velocity_msg.angular.z = 0
-                self.cmd_vel_pub.publish(velocity_msg)
-                break
-            
-            rate.sleep()
 
 if __name__ == '__main__':
-    rospy.init_node('jerry_robot', anonymous=True)
-    JerryRobot(4, 0).run()
+    main()
