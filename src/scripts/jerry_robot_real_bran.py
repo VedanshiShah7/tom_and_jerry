@@ -8,7 +8,7 @@ import math
 # Subdivision of angles in the lidar scanner
 ANGLE_THRESHOLD = 45
 # Obstacle threshhold, objects below this distance are considered obstacles
-OBJ_THRESHOLD = 0.1
+OBJ_THRESHOLD = 0.45
 # K Value for Linear Velocity P-Controller
 K_LIN = 0.7
 # K Value for Angular Velocity P-Controller
@@ -19,13 +19,16 @@ class JerryRobot():
         self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.my_odom_sub = rospy.Subscriber('my_odom', Point, self.odom_cb)
         self.scan_sub = rospy.Subscriber('/scan', LaserScan, self.scan_cb)
+        # Goal x, y of the robot
+        self.goal_x = goal_x
+        self.goal_y = goal_y
         # Current x, y, and yaw of the robot.
         self.cur_x = None
         self.cur_y = None
         self.cur_yaw = None
-        # Goal coordinate to be reached
-        self.goal_x = goal_x
-        self.goal_y = goal_y
+        # Start x, y of the robot
+        self.start_x = None
+        self.start_y = None
         # If an object is detected in front of robot, "obstacle_detected" is set to True,
         # and an avoid_angular_vel is calculated to avoid the obstacle
         self.robot_state = {"obstacle_detected": False, "avoid_angular_vel": 0}
@@ -41,41 +44,46 @@ class JerryRobot():
     
     def odom_cb(self, msg):
         """Callback function for `self.my_odom_sub`."""
-        # print(msg.x, msg.y)
         self.cur_x = msg.y
         self.cur_y = msg.x
+        # The first x,y the robot receives from the odom is treated as the origin
+        if self.start_x is None:
+            self.start_x = msg.y
+            self.goal_x += msg.y
+        if self.start_y is None:
+            self.start_y = msg.x
+            self.goal_y += msg.x
+        if self.start_x is not None and self.start_y is not None:
+            self.cur_x = msg.y - self.start_x
+            self.cur_y = msg.x - self.start_y
         # msg.z is the angular z i.e. yaw of the robot
         self.cur_yaw = msg.z
         # compute the distance from the current position to the goal
-        self.distance_to_goal = math.hypot(self.goal_x - msg.y, self.goal_y - msg.x)
+        self.distance_to_goal = math.hypot(self.goal_y - self.cur_y, self.goal_x - self.cur_x)
     
     def scan_cb(self, msg):
-        for i in range(len(msg.ranges)):
-            print(i, msg.ranges[i])
-        return
         for key in self.div_distance.keys():
             values = []
             if key == "0":
                 # The front region is wider compared to the other regions (60 vs 45),
                 # because we need to avoid obstacles in the front
                 for x in msg.ranges[int((330/360) * len(msg.ranges)):] + msg.ranges[:int((30/360) * len(msg.ranges))]:
-                    print(x)
                     if x <= OBJ_THRESHOLD and not(math.isinf(x)) and not(math.isnan(x)) and x > msg.range_min:
                         values.append(x)
             else:
-                for x in msg.ranges[int((23/360) * len(msg.ranges)) + ANGLE_THRESHOLD * (int(key)-1) : int((23/360) * len(msg.ranges)) + ANGLE_THRESHOLD * int(key)]: 
+                for x in msg.ranges[int((23/360) * len(msg.ranges)) + int((ANGLE_THRESHOLD/360) * len(msg.ranges)) * (int(key)-1) : int((23/360) * len(msg.ranges)) + int((ANGLE_THRESHOLD/360) * len(msg.ranges)) * int(key)]:
                     if x <= OBJ_THRESHOLD and not(math.isinf(x)) and not(math.isnan(x)) and x > msg.range_min:
                         values.append(x)
             self.div_distance[key] = values
     
     def calc_robot_state(self):
-        nearest = 9999999
+        nearest = math.inf
         region_diff = 0
         # Regional differences are calculated relative to the front region
         goal = "0"
         # The 4th region gives the highest regional diff so we start with that
         max_destination = "4"
-        max_distance = 0.0000001
+        max_distance = 0
 
         for key, value in self.div_distance.items():
             region_diff = abs(self.div_cost[key] - self.div_cost[goal])
@@ -118,22 +126,22 @@ class JerryRobot():
         x_start = self.cur_x
         y_start = self.cur_y
         angle_to_goal = math.atan2(self.goal_x - x_start, self.goal_y - y_start)
-
-        # Convert the range of angle_to_goal to be from 0 to 2pi, instead of -pi to pi as returned by math.atan2
-        if angle_to_goal < -math.pi/4 or angle_to_goal > math.pi/4:
-            if 0 > self.goal_y > y_start:
-                angle_to_goal = -2 * math.pi + angle_to_goal
-            elif 0 <= self.goal_y < y_start:
-                angle_to_goal = 2 * math.pi + angle_to_goal
+        
+        # angle_to_goal = angle_to_goal if angle_to_goal >= 0 else angle_to_goal + (2 * math.pi)
+        # if angle_to_goal < -math.pi/4 or angle_to_goal > math.pi/4:
+        #     if 0 > self.goal_y > y_start:
+        #         angle_to_goal = -2 * math.pi + angle_to_goal
+        #     elif 0 <= self.goal_y < y_start:
+        #         angle_to_goal = 2 * math.pi + angle_to_goal
         
         # Adjust current_angle to be from 0 to 2pi
         if self.last_angle > math.pi - 0.1 and current_angle <= 0:
             current_angle = 2 * math.pi + current_angle
         elif self.last_angle < -math.pi + 0.1 and current_angle > 0:
             current_angle = -2 * math.pi + current_angle
-
-        # proportional control for rotating the robot
+        
         velocity_msg = Twist()
+        # P-Controller for Angular Velocity
         velocity_msg.angular.z = K_ANG * (angle_to_goal - current_angle)
         
         # P-Controller for Linear Velocity, with a maximum of 0.3
@@ -155,17 +163,17 @@ class JerryRobot():
             pass
         
         rate = rospy.Rate(10)
-        self.goal_x = self.cur_x + self.goal_x
-        self.goal_y = self.cur_y + self.goal_y
-        self.distance_to_goal = math.hypot(self.goal_x - self.cur_x, self.goal_y - self.cur_y)
 
         while not rospy.is_shutdown():
+            self.distance_to_goal = math.hypot(self.goal_y - self.cur_y, self.goal_x - self.cur_x)
             # Keep the robot running until we are very close to goal (9cm)
             if self.distance_to_goal > 0.09:
                 # Log the robot's state and distance to goal
                 rospy.loginfo("Distance to goal {0}".format(self.distance_to_goal))
                 rospy.loginfo("Robot state {0}".format(self.robot_state))
-                rospy.loginfo("Div distance {0}".format(self.div_distance))
+                rospy.loginfo("Div Distances {0}".format(self.div_distance))
+                rospy.loginfo("Current coordinates ({0}, {1})".format(self.cur_x, self.cur_y))
+                rospy.loginfo("Current angle {0}".format(self.cur_yaw))
 
                 if self.distance_to_goal < 0.15:
                     # If we're close enough to goal, move directly towards goal
@@ -187,24 +195,7 @@ class JerryRobot():
                 break
             
             rate.sleep()
-    
-    def run2(self):
-        while self.cur_x is None or self.cur_y is None or self.cur_yaw is None:
-            pass
-        
-        rate = rospy.Rate(10)
-        self.goal_x = self.cur_x + self.goal_x
-        self.goal_y = self.cur_y + self.goal_y
-        self.distance_to_goal = math.hypot(self.goal_x - self.cur_x, self.goal_y - self.cur_y)
-        
-        print(self.cur_x, self.cur_y)
-        
-        while not rospy.is_shutdown():
-            rospy.loginfo("Distance to goal {0}".format(self.distance_to_goal))
-            rospy.loginfo("Robot state {0}".format(self.robot_state))
-            rospy.loginfo("Div distance {0}".format(self.div_distance))
-            rate.sleep()
 
 if __name__ == '__main__':
     rospy.init_node('jerry_robot', anonymous=True)
-    JerryRobot(0, 4).run()
+    JerryRobot(-1, 4).run()
