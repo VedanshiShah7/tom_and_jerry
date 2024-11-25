@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
 import rospy
-from geometry_msgs.msg import Twist
-import tf
+import math
+import tf2_ros
+import geometry_msgs.msg
 from math import atan2, sqrt
 
 class TomChaser:
@@ -11,7 +12,7 @@ class TomChaser:
         rospy.init_node('tom_chaser', anonymous=True)
 
         # Velocity publisher for Tom
-        self.velocity_publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+        self.velocity_publisher = rospy.Publisher('/cmd_vel', geometry_msgs.msg.Twist, queue_size=10)
 
         # Set the delay for Tom's start (in seconds)
         self.delay_start_tom = delay_start_tom
@@ -21,8 +22,9 @@ class TomChaser:
         self.chase_started = False
         self.start_time = rospy.get_time()
 
-        # Initialize the TF listener
-        self.listener = tf.TransformListener()
+        # Initialize tf2 buffer and listener
+        self.tfBuffer = tf2_ros.Buffer()
+        self.listener = tf2_ros.TransformListener(self.tfBuffer)
 
     def chase_jerry(self):
         # Wait for the delay before starting the chase
@@ -36,22 +38,23 @@ class TomChaser:
                 rospy.loginfo("Starting the chase!")
 
         try:
-            # Wait until the transform between Tom and Jerry is available
-            self.listener.waitForTransform('odom', 'tom', rospy.Time(), rospy.Duration(1.0))
-            self.listener.waitForTransform('odom', 'jerry', rospy.Time(), rospy.Duration(1.0))
+            # Try to get the transform between 'odom' and 'tom', 'odom' and 'jerry'
+            rospy.loginfo("Waiting for transform...")
+            trans_tom = self.tfBuffer.lookup_transform('odom', 'tom', rospy.Time(), rospy.Duration(1.0))
+            trans_jerry = self.tfBuffer.lookup_transform('odom', 'jerry', rospy.Time(), rospy.Duration(1.0))
 
-            # Get the transform from 'odom' to 'tom' and 'odom' to 'jerry'
-            (trans_tom, rot_tom) = self.listener.lookupTransform('odom', 'tom', rospy.Time(0))
-            (trans_jerry, rot_jerry) = self.listener.lookupTransform('odom', 'jerry', rospy.Time(0))
+            # Log that transforms were successfully received
+            rospy.loginfo(f"Transform from 'odom' to 'tom' received: {trans_tom}")
+            rospy.loginfo(f"Transform from 'odom' to 'jerry' received: {trans_jerry}")
 
             # Compute the difference in position between Tom and Jerry
-            dx = trans_jerry[0] - trans_tom[0]
-            dy = trans_jerry[1] - trans_tom[1]
+            dx = trans_jerry.transform.translation.x - trans_tom.transform.translation.x
+            dy = trans_jerry.transform.translation.y - trans_tom.transform.translation.y
             distance = sqrt(dx**2 + dy**2)
             angle_to_jerry = atan2(dy, dx)
 
-            # Create a Twist message
-            cmd_vel = Twist()
+            # Create a Twist message for velocity
+            cmd_vel = geometry_msgs.msg.Twist()
 
             if distance > 0.1:  # Threshold to stop when near Jerry
                 # Linear velocity proportional to the distance (scaled to prevent too fast movement)
@@ -68,8 +71,8 @@ class TomChaser:
             # Publish velocity
             self.velocity_publisher.publish(cmd_vel)
 
-        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-            rospy.logwarn("TF lookup failed, waiting for the transforms...")
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            rospy.logwarn(f"TF2 lookup failed: {e}, waiting for transforms...")
 
     def start_chasing(self):
         # Loop to continuously chase Jerry
