@@ -2,47 +2,30 @@
 
 import rospy
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
+import tf
 from math import atan2, sqrt
-from time import sleep
 
 class TomChaser:
     def __init__(self, delay_start_tom):
-        rospy.init_node('tom_chaser')
+        # Initialize the ROS node
+        rospy.init_node('tom_chaser', anonymous=True)
 
         # Velocity publisher for Tom
-        self.velocity_publisher = rospy.Publisher('/tom/cmd_vel', Twist, queue_size=10)
-
-        # Odometry subscriber for Tom
-        self.tom_pose_subscriber = rospy.Subscriber('/tom/my_odom', Odometry, self.update_tom_pose)
-
-        # Odometry subscriber for Jerry
-        self.jerry_pose_subscriber = rospy.Subscriber('/jerry/my_odom', Odometry, self.update_jerry_pose)
-
-        self.tom_pose = None
-        self.jerry_pose = None
-
-        # Initializing chase state
-        self.chase_started = False
-        self.start_time = rospy.get_time()
+        self.velocity_publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
 
         # Set the delay for Tom's start (in seconds)
         self.delay_start_tom = delay_start_tom
         rospy.loginfo(f"Delaying Tom's start by {self.delay_start_tom} seconds...")
 
         # Timer for chasing Jerry
-        self.chase_timer = rospy.Timer(rospy.Duration(0.1), self.chase_jerry)
+        self.chase_started = False
+        self.start_time = rospy.get_time()
 
-    def update_tom_pose(self, msg):
-        # Update Tom's position from odometry data
-        self.tom_pose = msg.pose.pose.position
+        # Initialize the TF listener
+        self.listener = tf.TransformListener()
 
-    def update_jerry_pose(self, msg):
-        # Update Jerry's position from odometry data
-        self.jerry_pose = msg.pose.pose.position
-
-    def chase_jerry(self, event):
-        # Wait for the delay of 20 seconds
+    def chase_jerry(self):
+        # Wait for the delay before starting the chase
         if not self.chase_started:
             elapsed_time = rospy.get_time() - self.start_time
             if elapsed_time < self.delay_start_tom:
@@ -52,37 +35,54 @@ class TomChaser:
                 self.chase_started = True
                 rospy.loginfo("Starting the chase!")
 
-        if not self.tom_pose or not self.jerry_pose:
-            # Wait for both positions to be initialized
-            return
+        try:
+            # Wait until the transform between Tom and Jerry is available
+            self.listener.waitForTransform('odom', 'tom', rospy.Time(), rospy.Duration(1.0))
+            self.listener.waitForTransform('odom', 'jerry', rospy.Time(), rospy.Duration(1.0))
 
-        # Calculate the distance and angle to Jerry
-        dx = self.jerry_pose.x - self.tom_pose.x
-        dy = self.jerry_pose.y - self.tom_pose.y
-        distance = sqrt(dx**2 + dy**2)
-        angle_to_jerry = atan2(dy, dx)
+            # Get the transform from 'odom' to 'tom' and 'odom' to 'jerry'
+            (trans_tom, rot_tom) = self.listener.lookupTransform('odom', 'tom', rospy.Time(0))
+            (trans_jerry, rot_jerry) = self.listener.lookupTransform('odom', 'jerry', rospy.Time(0))
 
-        # Create a Twist message
-        cmd_vel = Twist()
+            # Compute the difference in position between Tom and Jerry
+            dx = trans_jerry[0] - trans_tom[0]
+            dy = trans_jerry[1] - trans_tom[1]
+            distance = sqrt(dx**2 + dy**2)
+            angle_to_jerry = atan2(dy, dx)
 
-        if distance > 0.1:  # Threshold to stop when near Jerry
-            # Linear velocity proportional to the distance (scaled to prevent too fast movement)
-            cmd_vel.linear.x = min(0.5 * distance, 0.5)  # Limit max speed to 0.5 m/s
+            # Create a Twist message
+            cmd_vel = Twist()
 
-            # Angular velocity proportional to the angle difference
-            cmd_vel.angular.z = 1.0 * angle_to_jerry
-        else:
-            # Stop if close enough
-            cmd_vel.linear.x = 0.0
-            cmd_vel.angular.z = 0.0
-            rospy.loginfo("Tom tagged Jerry!")
+            if distance > 0.1:  # Threshold to stop when near Jerry
+                # Linear velocity proportional to the distance (scaled to prevent too fast movement)
+                cmd_vel.linear.x = min(0.5 * distance, 0.5)  # Limit max speed to 0.5 m/s
 
-        # Publish velocity
-        self.velocity_publisher.publish(cmd_vel)
+                # Angular velocity proportional to the angle difference
+                cmd_vel.angular.z = 1.0 * angle_to_jerry
+            else:
+                # Stop if close enough
+                cmd_vel.linear.x = 0.0
+                cmd_vel.angular.z = 0.0
+                rospy.loginfo("Tom tagged Jerry!")
+
+            # Publish velocity
+            self.velocity_publisher.publish(cmd_vel)
+
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+            rospy.logwarn("TF lookup failed, waiting for the transforms...")
+
+    def start_chasing(self):
+        # Loop to continuously chase Jerry
+        rate = rospy.Rate(10)  # 10 Hz loop
+        while not rospy.is_shutdown():
+            self.chase_jerry()
+            rate.sleep()
 
 if __name__ == '__main__':
-    # Get the delay parameter from the launch file
-    delay_start_tom = rospy.get_param('~delay_start_tom', 20.0)  # Default to 20 seconds if not specified
-
-    tom_chaser = TomChaser(delay_start_tom)
-    rospy.spin()
+    try:
+        # Get the delay parameter from the launch file (default to 20 seconds if not specified)
+        delay_start_tom = rospy.get_param('~delay_start_tom', 20.0)
+        tom_chaser = TomChaser(delay_start_tom)
+        tom_chaser.start_chasing()
+    except rospy.ROSInterruptException:
+        pass

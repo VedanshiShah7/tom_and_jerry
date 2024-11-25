@@ -27,8 +27,8 @@
     <node pkg="gazebo_ros" type="spawn_model" name="spawn_tom" args="-urdf -model tom -x $(arg x_pos_tom) -y $(arg y_pos_tom) -z $(arg z_pos_tom) -param robot_description" />
 
     <!-- Launch Jerry's behavior (no chase behavior for Jerry yet, just add an appropriate behavior) -->
-    <node pkg="tom_and_jerry" type="jerry_robot_real_turtlebot.py" name="jerry_behavior" output="screen"/>
+    <!-- <node pkg="tom_and_jerry" type="jerry_robot_real_turtlebot.py" name="jerry_behavior" output="screen"/> -->
 
     <!-- Launch Tom's behavior with delay directly in the tom_robot_real.py script -->
-    <node pkg="tom_and_jerry" type="tom_robot_real.py" name="tom_behavior" args="$(arg delay_start_tom)" output="screen" />
+    <!-- <node pkg="tom_and_jerry" type="tom_robot_real.py" name="tom_behavior" args="$(arg delay_start_tom)" output="screen" /> -->
 </launch>
