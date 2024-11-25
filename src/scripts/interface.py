@@ -1,5 +1,6 @@
 from flask import Flask, request, redirect, url_for, render_template_string, session
 import random
+import subprocess  # Import subprocess to run shell commands
 
 app = Flask(__name__)
 app.secret_key = 'your_unique_secret_key'  # Ensure you use a unique secret key
@@ -28,6 +29,8 @@ def select_color():
     if request.method == "POST":
         cheese_color = request.form["cheese_color"]
         session["cheese_color"] = cheese_color  # Store the cheese color in session
+        # Now run the ROS command using the selected color
+        run_ros_command(cheese_color)  # Pass the color to the ROS command
         return redirect(url_for("loading"))
     return render_template_string("""
     <!DOCTYPE html>
@@ -44,11 +47,25 @@ def select_color():
             <label>
                 <input type="radio" name="cheese_color" value="yellow" required> Yellow Cheese
             </label><br>
+            <label>
+                <input type="radio" name="cheese_color" value="red" required> Red Cheese
+            </label><br>
+            <label>
+                <input type="radio" name="cheese_color" value="green" required> Green Cheese
+            </label><br>
             <button type="submit">Confirm</button>
         </form>
     </body>
     </html>
     """)
+
+# Function to run ROS command with the selected color
+def run_ros_command(target_color):
+    try:
+        # Run the ROS command with the color passed as an argument
+        subprocess.Popen(['rosrun', 'tom_and_jerry', 'object_detection.py', f'~target_color:={target_color}'])
+    except Exception as e:
+        print(f"Error running ROS command: {e}")
 
 # Loading screen route
 @app.route("/loading")
