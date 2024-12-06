@@ -19,6 +19,8 @@ class JerryRobot():
         self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.my_odom_sub = rospy.Subscriber('my_odom', Point, self.odom_cb)
         self.scan_sub = rospy.Subscriber('/scan', LaserScan, self.scan_cb)
+        self.tf_broadcaster = tf2_ros.TransformBroadcaster()  # TF2 broadcaster
+
         # Goal x, y of the robot
         self.goal_x = goal_x
         self.goal_y = goal_y
@@ -60,6 +62,28 @@ class JerryRobot():
         self.cur_yaw = msg.z
         # compute the distance from the current position to the goal
         self.distance_to_goal = math.hypot(self.goal_y - self.cur_y, self.goal_x - self.cur_x)
+        # Publish the transform
+        self.broadcast_pose()
+
+    def broadcast_pose(self):
+        """Broadcast the current pose of the robot."""
+        transform = TransformStamped()
+        transform.header.stamp = rospy.Time.now()
+        transform.header.frame_id = "world"  # Reference frame
+        transform.child_frame_id = "jerry"  # Frame for Jerry Robot
+
+        transform.transform.translation.x = self.cur_x
+        transform.transform.translation.y = self.cur_y
+        transform.transform.translation.z = 0.0
+
+        # Convert yaw to quaternion
+        qx, qy, qz, qw = 0.0, 0.0, math.sin(self.cur_yaw / 2.0), math.cos(self.cur_yaw / 2.0)
+        transform.transform.rotation.x = qx
+        transform.transform.rotation.y = qy
+        transform.transform.rotation.z = qz
+        transform.transform.rotation.w = qw
+
+        self.tf_broadcaster.sendTransform(transform)
     
     def scan_cb(self, msg):
         for key in self.div_distance.keys():

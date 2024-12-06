@@ -11,18 +11,19 @@ class TomChaser:
         # Initialize the ROS node
         rospy.init_node('tom_chaser', anonymous=True)
 
-        # Velocity publisher for Tom
-        self.velocity_publisher = rospy.Publisher('/cmd_vel', geometry_msgs.msg.Twist, queue_size=10)
+        # Velocity publishers for Tom and Jerry
+        self.tom_velocity_publisher = rospy.Publisher('/rafael/cmd_vel', geometry_msgs.msg.Twist, queue_size=10)
+        self.jerry_velocity_publisher = rospy.Publisher('/cmd_vel', geometry_msgs.msg.Twist, queue_size=10)
 
-        # Set the delay for Tom's start (in seconds)
+        # Delay before Tom starts chasing Jerry
         self.delay_start_tom = delay_start_tom
         rospy.loginfo(f"Delaying Tom's start by {self.delay_start_tom} seconds...")
 
-        # Timer for chasing Jerry
+        # Timer for starting the chase
         self.chase_started = False
         self.start_time = rospy.get_time()
 
-        # Initialize tf2 buffer and listener
+        # TF2 buffer and listener to get transforms
         self.tfBuffer = tf2_ros.Buffer()
         self.listener = tf2_ros.TransformListener(self.tfBuffer)
 
@@ -31,55 +32,58 @@ class TomChaser:
         if not self.chase_started:
             elapsed_time = rospy.get_time() - self.start_time
             if elapsed_time < self.delay_start_tom:
-                rospy.loginfo(f"Waiting for {self.delay_start_tom - elapsed_time:.2f} seconds before starting chase.")
+                rospy.loginfo(f"Waiting for {self.delay_start_tom - elapsed_time:.2f} seconds before starting the chase.")
                 return
             else:
                 self.chase_started = True
-                rospy.loginfo("Starting the chase!")
+                rospy.loginfo("Tom is now chasing Jerry!")
 
         try:
-            # Try to get the transform between 'odom' and 'tom', 'odom' and 'jerry'
-            rospy.loginfo("Waiting for transform...")
-            trans_tom = self.tfBuffer.lookup_transform('odom', 'tom', rospy.Time(), rospy.Duration(1.0))
-            trans_jerry = self.tfBuffer.lookup_transform('odom', 'jerry', rospy.Time(), rospy.Duration(1.0))
+            # Get the transform between 'odom' and both robots
+            trans_tom = self.tfBuffer.lookup_transform('odom', 'rafael/base_footprint', rospy.Time(), rospy.Duration(1.0))
+            trans_jerry = self.tfBuffer.lookup_transform('odom', 'base_footprint', rospy.Time(), rospy.Duration(1.0))
 
-            # Log that transforms were successfully received
-            rospy.loginfo(f"Transform from 'odom' to 'tom' received: {trans_tom}")
-            rospy.loginfo(f"Transform from 'odom' to 'jerry' received: {trans_jerry}")
-
-            # Compute the difference in position between Tom and Jerry
+            # Calculate the difference in positions
             dx = trans_jerry.transform.translation.x - trans_tom.transform.translation.x
             dy = trans_jerry.transform.translation.y - trans_tom.transform.translation.y
             distance = sqrt(dx**2 + dy**2)
             angle_to_jerry = atan2(dy, dx)
 
-            # Create a Twist message for velocity
-            cmd_vel = geometry_msgs.msg.Twist()
+            # Create a Twist message for Tom's velocity
+            cmd_vel_tom = geometry_msgs.msg.Twist()
 
-            if distance > 0.1:  # Threshold to stop when near Jerry
-                # Linear velocity proportional to the distance (scaled to prevent too fast movement)
-                cmd_vel.linear.x = min(0.5 * distance, 0.5)  # Limit max speed to 0.5 m/s
+            # Stop if Tom is close enough to Jerry
+            if distance <= 0.1:  # Safe distance to stop
+                cmd_vel_tom.linear.x = 0.0
+                cmd_vel_tom.angular.z = 0.0
 
-                # Angular velocity proportional to the angle difference
-                cmd_vel.angular.z = 1.0 * angle_to_jerry
+                # Stop Jerry as well
+                cmd_vel_jerry = geometry_msgs.msg.Twist()
+                cmd_vel_jerry.linear.x = 0.0
+                cmd_vel_jerry.angular.z = 0.0
+
+                self.tom_velocity_publisher.publish(cmd_vel_tom)
+                self.jerry_velocity_publisher.publish(cmd_vel_jerry)
+
+                rospy.loginfo("Tom tagged Jerry! Both have stopped.")
+                rospy.signal_shutdown("Tag complete")  # Stop the node
             else:
-                # Stop if close enough
-                cmd_vel.linear.x = 0.0
-                cmd_vel.angular.z = 0.0
-                rospy.loginfo("Tom tagged Jerry!")
+                # Chase Jerry: Set linear and angular velocities
+                cmd_vel_tom.linear.x = min(0.5 * distance, 0.5)  # Limit max speed to 0.5 m/s
+                cmd_vel_tom.angular.z = 1.5 * angle_to_jerry  # Adjust angular velocity for precise turning
 
-            # Publish velocity
-            self.velocity_publisher.publish(cmd_vel)
+                self.tom_velocity_publisher.publish(cmd_vel_tom)
 
         except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
-            rospy.logwarn(f"TF2 lookup failed: {e}, waiting for transforms...")
+            rospy.logwarn(f"TF2 lookup failed: {e}, waiting for valid transforms...")
 
     def start_chasing(self):
-        # Loop to continuously chase Jerry
+        # Main loop to continuously chase Jerry
         rate = rospy.Rate(10)  # 10 Hz loop
         while not rospy.is_shutdown():
             self.chase_jerry()
             rate.sleep()
+
 
 if __name__ == '__main__':
     try:
