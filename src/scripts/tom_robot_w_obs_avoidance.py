@@ -6,6 +6,11 @@ import tf2_ros
 import geometry_msgs.msg
 from math import atan2, sqrt
 
+# Subdivision of angles in the lidar scanner
+ANGLE_THRESHOLD = 45
+# Obstacle threshhold, objects below this distance are considered obstacles
+OBJ_THRESHOLD = 0.35
+
 class TomChaser:
     def __init__(self, delay_start_tom):
         # Initialize the ROS node
