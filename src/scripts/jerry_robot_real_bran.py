@@ -4,6 +4,8 @@ import rospy
 from geometry_msgs.msg import Twist, Point
 from sensor_msgs.msg import LaserScan
 import math
+import tf2_ros
+from tf2_ros import TransformStamped
 
 # Subdivision of angles in the lidar scanner
 ANGLE_THRESHOLD = 45
@@ -17,7 +19,7 @@ K_ANG = 1.0
 class JerryRobot():
     def __init__(self, goal_x, goal_y):
         self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
-        self.my_odom_sub = rospy.Subscriber('my_odom', Point, self.odom_cb)
+        self.my_odom_sub = rospy.Subscriber('/jerry_odom', Point, self.odom_cb)
         self.scan_sub = rospy.Subscriber('/scan', LaserScan, self.scan_cb)
         self.tf_broadcaster = tf2_ros.TransformBroadcaster()  # TF2 broadcaster
 

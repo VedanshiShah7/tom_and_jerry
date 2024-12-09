@@ -6,10 +6,10 @@ from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Point 
 from tf.transformations import euler_from_quaternion
 
-class MyOdom:
+class JerryOdom:
     def __init__(self):
-        self.odom_sub = rospy.Subscriber('odom', Odometry, self.odom_cb)
-        self.my_odom_pub = rospy.Publisher('my_odom', Point, queue_size=1)
+        self.odom_sub = rospy.Subscriber('/odom', Odometry, self.odom_cb)
+        self.my_odom_pub = rospy.Publisher('/jerry_odom', Point, queue_size=1)
         self.x = 0.0
         self.y = 0.0
         self.yaw = 0.0
@@ -52,6 +52,6 @@ class MyOdom:
         self.my_odom_pub.publish(cur_point)
         
 if __name__ == '__main__':
-    rospy.init_node('my_odom')
-    MyOdom()
+    rospy.init_node('jerry_odom')
+    JerryOdom()
     rospy.spin()
