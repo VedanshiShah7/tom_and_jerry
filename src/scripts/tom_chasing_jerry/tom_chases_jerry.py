@@ -14,8 +14,8 @@ class TomChasesJerry:
         self.tom_velocity_publisher = rospy.Publisher('/rafael/cmd_vel', geometry_msgs.msg.Twist, queue_size=10)
         self.jerry_velocity_publisher = rospy.Publisher('/cmd_vel', geometry_msgs.msg.Twist, queue_size=10)
 
-        self.jerry_odom_sub = rospy.Subscriber('/jerry_odom', Point, self.jerry_odom_cb)
-        self.tom_odom_sub = rospy.Subscriber('/tom_odom', Point, self.tom_odom_cb)
+        self.jerry_odom_sub = rospy.Subscriber('/jerry_odom', geometry_msgs.msg.Point, self.jerry_odom_cb)
+        self.tom_odom_sub = rospy.Subscriber('/tom_odom', geometry_msgs.msg.Point, self.tom_odom_cb)
 
         # Current x, y, and yaw of the Jerry robot.
         self.jerry_cur_x = None
@@ -104,7 +104,7 @@ class TomChasesJerry:
             rospy.loginfo("Tom tagged Jerry! Both have stopped.")
             rospy.signal_shutdown("Tag complete")  # Stop the node
         else:
-            # Tom moves in a circle
+            # Jerry moves in a circle
             cmd_vel_jerry.linear.x = 0.2
             cmd_vel_jerry.angular.z = 0.2
 
