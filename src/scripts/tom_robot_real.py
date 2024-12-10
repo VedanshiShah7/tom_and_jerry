@@ -30,14 +30,14 @@ class TomAndJerry:
         """Callback for Tom's position."""
         self.tom_position = (msg.x, msg.y)
         self.tom_yaw = msg.z  # Yaw is stored in the z field
-        rospy.loginfo(f"Updated Tom Position: {self.tom_position}")
-        rospy.loginfo(f"Updated Tom Yaw: {self.tom_yaw}")
+        # rospy.loginfo(f"Updated Tom Position: {self.tom_position}")
+        # rospy.loginfo(f"Updated Tom Yaw: {self.tom_yaw}")
 
     def update_jerry_position(self, msg):
         """Callback for Jerry's position with offset."""
         # Apply offset to Jerry's position
         self.jerry_position = (msg.x + self.offset_x, msg.y + self.offset_y)
-        rospy.loginfo(f"Updated Jerry Position with Offset: {self.jerry_position}")
+        # rospy.loginfo(f"Updated Jerry Position with Offset: {self.jerry_position}")
 
     def compute_angle_and_distance(self):
         """Calculate the distance and angle between Tom and Jerry."""
@@ -68,18 +68,20 @@ class TomAndJerry:
 
                 cmd_vel = Twist()
 
-                # Turn Tom towards Jerry if the angle difference is too large
-                if abs(angle_diff) > 0.1:  # Adjust turning precision
-                    cmd_vel.angular.z = 0.5 * angle_diff  # Scaled turn speed
-                else:
-                    cmd_vel.linear.x = min(0.5 * distance, 0.2)  # Scaled forward speed
+                # Calculate the linear and angular velocities
+                linear_velocity = min(0.5 * distance, 0.2)  # Scaled forward speed
+                angular_velocity = 0.05 * angle_diff  # Scaled turn speed
 
-                rospy.loginfo(f"Publishing cmd_vel: {cmd_vel}")
+                # Combine both linear and angular velocities
+                cmd_vel.linear.x = linear_velocity
+                cmd_vel.angular.z = angular_velocity
+
                 self.vel_pub.publish(cmd_vel)
             else:
                 rospy.loginfo("Waiting for positions...")
 
             self.rate.sleep()
+
 
     def shutdown(self):
         """Stop the robot when shutting down."""
