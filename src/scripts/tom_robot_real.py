@@ -10,6 +10,7 @@ class TomAndJerry:
     def __init__(self):
         rospy.init_node('tom_robot_real', anonymous=True)
         self.vel_pub = rospy.Publisher('rafael/cmd_vel', Twist, queue_size=10)
+        self.jerry_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.rate = rospy.Rate(10)
 
         # Subscribe to Tom's odom and Jerry's odom
@@ -20,15 +21,34 @@ class TomAndJerry:
         self.jerry_position = None
         self.tom_yaw = None
 
-        self.caught_threshold = 0.05  # How close Tom needs to be to catch Jerry
+        self.caught_threshold = 0.5  # How close Tom needs to be to catch Jerry
 
         # Offset for Jerry's position
         self.offset_x = 0  # Adjust the offset values as needed
         self.offset_y = 1
 
+        # Start x, y of the Tom robot
+        self.tom_start_x = None
+        self.tom_start_y = None
+
+        # Start x, y of the Jerry robot
+        self.jerry_start_x = None
+        self.jerry_start_y = None
+
     def update_tom_position(self, msg):
         """Callback for Tom's position."""
-        self.tom_position = (msg.x, msg.y)
+        # The first x,y the robot receives from the odom is treated as the origin
+        if self.tom_start_x is None:
+            self.tom_start_x = msg.y
+        
+        if self.tom_start_y is None:
+            self.tom_start_y = msg.x
+        
+        if self.tom_start_x is not None and self.tom_start_y is not None:
+            self.tom_position = (msg.y - self.tom_start_x, msg.x - self.tom_start_y)
+        else:
+            self.tom_position = (msg.y, msg.x)
+        
         self.tom_yaw = msg.z  # Yaw is stored in the z field
         # rospy.loginfo(f"Updated Tom Position: {self.tom_position}")
         # rospy.loginfo(f"Updated Tom Yaw: {self.tom_yaw}")
@@ -36,7 +56,16 @@ class TomAndJerry:
     def update_jerry_position(self, msg):
         """Callback for Jerry's position with offset."""
         # Apply offset to Jerry's position
-        self.jerry_position = (msg.x + self.offset_x, msg.y + self.offset_y)
+        if self.jerry_start_x is None:
+            self.jerry_start_x = msg.y
+        
+        if self.jerry_start_y is None:
+            self.jerry_start_y = msg.x
+        
+        if self.jerry_start_x is not None and self.jerry_start_y is not None:
+            self.jerry_position = (msg.y + self.offset_x - self.jerry_start_x, msg.x + self.offset_y - self.jerry_start_y)
+        else:
+            self.jerry_position = (msg.y + self.offset_x, msg.x + self.offset_y)
         # rospy.loginfo(f"Updated Jerry Position with Offset: {self.jerry_position}")
 
     def compute_angle_and_distance(self):
@@ -67,6 +96,7 @@ class TomAndJerry:
                     break
 
                 cmd_vel = Twist()
+                cmd_vel_jerry = Twist()
 
                 # Calculate the linear and angular velocities
                 linear_velocity = min(0.5 * distance, 0.2)  # Scaled forward speed
@@ -76,7 +106,11 @@ class TomAndJerry:
                 cmd_vel.linear.x = linear_velocity
                 cmd_vel.angular.z = angular_velocity
 
+                cmd_vel_jerry.linear.x = 0.2
+                cmd_vel_jerry.angular.z = -0.08
+
                 self.vel_pub.publish(cmd_vel)
+                self.jerry_vel_pub.publish(cmd_vel_jerry)
             else:
                 rospy.loginfo("Waiting for positions...")
 
