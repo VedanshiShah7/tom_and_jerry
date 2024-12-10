@@ -9,11 +9,11 @@ from tf.transformations import euler_from_quaternion
 class TomAndJerry:
     def __init__(self):
         rospy.init_node('tom_robot_real', anonymous=True)
-        self.vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+        self.vel_pub = rospy.Publisher('rafael/cmd_vel', Twist, queue_size=10)
         self.rate = rospy.Rate(10)
 
         # Subscribe to Tom's odom and Jerry's odom
-        rospy.Subscriber('/tom_odom', Odometry, self.update_tom_position)
+        rospy.Subscriber('/tom_odom', Point, self.update_tom_position)
         rospy.Subscriber('/jerry_odom', Point, self.update_jerry_position)
 
         self.tom_position = None
@@ -22,23 +22,22 @@ class TomAndJerry:
 
         self.caught_threshold = 0.05  # How close Tom needs to be to catch Jerry
 
+        # Offset for Jerry's position
+        self.offset_x = 0  # Adjust the offset values as needed
+        self.offset_y = 1
+
     def update_tom_position(self, msg):
         """Callback for Tom's position."""
-        self.tom_position = (
-            msg.pose.pose.position.x,
-            msg.pose.pose.position.y,
-        )
+        self.tom_position = (msg.x, msg.y)
+        self.tom_yaw = msg.z  # Yaw is stored in the z field
         rospy.loginfo(f"Updated Tom Position: {self.tom_position}")
-        orientation_q = msg.pose.pose.orientation
-        (_, _, self.tom_yaw) = euler_from_quaternion(
-            [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
-        )
         rospy.loginfo(f"Updated Tom Yaw: {self.tom_yaw}")
 
     def update_jerry_position(self, msg):
-        """Callback for Jerry's position."""
-        self.jerry_position = (msg.x, msg.y)
-        rospy.loginfo(f"Updated Jerry Position: {self.jerry_position}")
+        """Callback for Jerry's position with offset."""
+        # Apply offset to Jerry's position
+        self.jerry_position = (msg.x + self.offset_x, msg.y + self.offset_y)
+        rospy.loginfo(f"Updated Jerry Position with Offset: {self.jerry_position}")
 
     def compute_angle_and_distance(self):
         """Calculate the distance and angle between Tom and Jerry."""
@@ -68,11 +67,14 @@ class TomAndJerry:
                     break
 
                 cmd_vel = Twist()
+
+                # Turn Tom towards Jerry if the angle difference is too large
                 if abs(angle_diff) > 0.1:  # Adjust turning precision
                     cmd_vel.angular.z = 0.5 * angle_diff  # Scaled turn speed
                 else:
                     cmd_vel.linear.x = min(0.5 * distance, 0.2)  # Scaled forward speed
 
+                rospy.loginfo(f"Publishing cmd_vel: {cmd_vel}")
                 self.vel_pub.publish(cmd_vel)
             else:
                 rospy.loginfo("Waiting for positions...")
