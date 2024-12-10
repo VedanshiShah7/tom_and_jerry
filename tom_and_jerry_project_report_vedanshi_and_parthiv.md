@@ -63,7 +63,11 @@ The following resources guided our design and implementation:
 
 **Technical descriptions, illustrations**  
 
+![My Image](https://drive.google.com/uc?export=view&id=11gb9T7If4yfC8p25sbf_QMP6bPsccACf)
+
 There are different goal states/milestones. The robots are started at different set distances, there is around a 1m gap between the two robots. There is an obstacle section with the red brick walls as the obstacles. Finally, there is an end stage with the goal of reaching the pre-chosen colored block.  
+
+![My Image](https://drive.google.com/uc?export=view&id=1Q4wLxMFRofTLzB84H0I3M42ZBmKquAO3)
 
 We worked on getting the robots on the same `roscore` and then trying to figure out how to use the information for one to chase the other → what would be involved with that and decided to create the following functionality using the odoms of the robots.  
 
