@@ -76,11 +76,8 @@ class TomChasesJerry:
 
     def chase_jerry(self):
         # Calculate the difference in positions
-        offset_vector_x = self.offset_x - self.tom_cur_x
-        offset_vector_y = self.offset_y - self.tom_cur_y
-
-        dx = offset_vector_x + self.jerry_cur_x
-        dy = offset_vector_y + self.jerry_cur_y
+        dx = self.jerry_cur_x - self.tom_cur_x
+        dy = self.jerry_cur_y - self.tom_cur_y
 
         distance = sqrt(dx**2 + dy**2)
         angle_to_jerry = atan2(dy, dx)
@@ -104,9 +101,9 @@ class TomChasesJerry:
             rospy.loginfo("Tom tagged Jerry! Both have stopped.")
             rospy.signal_shutdown("Tag complete")  # Stop the node
         else:
-            # Jerry moves in a circle
-            cmd_vel_jerry.linear.x = 0.2
-            cmd_vel_jerry.angular.z = 0.2
+            # # Jerry moves in a circle
+            # cmd_vel_jerry.linear.x = 0.2
+            # cmd_vel_jerry.angular.z = 0.2
 
             # Chase Jerry: Set linear and angular velocities
             cmd_vel_tom.linear.x = min(0.5 * distance, 0.5)  # Limit max speed to 0.5 m/s
