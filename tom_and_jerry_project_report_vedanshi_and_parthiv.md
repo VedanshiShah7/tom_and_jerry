@@ -12,7 +12,6 @@ Vedanshi Shah and Parthiv Ganguly
 ### Introduction  
 
 **Problem statement, including original objectives**  
-Our project involves two robots playing a simplified game of tag. The robot being chased and moving towards the goal state (of the colored block) is assigned the role of "Jerry" while the secondary robot chasing takes on the role of "Tom." The Jerry bot must navigate through obstacles, find and pick up a colored block, and then make its way through more obstacles to reach the end wall, which is marked by a fiducial. The Tom robot's goal is to chase and “tag” Jerry by colliding with it or getting very close.  
 
 **Problem Statement:** Develop a system where two robots, Tom and Jerry, engage in a game of tag, with Jerry navigating obstacles and retrieving a colored block while Tom chases and attempts to tag Jerry.  
 
@@ -146,16 +145,69 @@ For object detection, the robot uses both camera and LIDAR data to detect and ap
   `chmod +x <script_name>.py`  
 
 ---
+### Clear description and tables of source files, nodes, messages, actions and so on
 
+## **1. Overview of Source Files**
+| **File Name**                  | **Description**                                                                                         |
+|--------------------------------|---------------------------------------------------------------------------------------------------------|
+| `interface.py`                 | Flask-based web interface allowing users to interact with the system by selecting cheese colors and viewing game results. |
+| `jerry_odom.py`                | Handles Jerry’s odometry, subscribes to `/odom`, and publishes processed odometry to `/jerry_odom`.     |
+| `jerry_robot.py`               | Implements Jerry's behavior: navigation, LIDAR-based obstacle avoidance, and block detection using image processing. |
+| `object_detection.py`          | Detects colored blocks using a camera feed, and provides movement commands to approach the detected block. |
+| `tom_odom.py`                  | Similar to `jerry_odom.py`, but for Tom. Subscribes to `/rafael/odom` and publishes data to `/tom_odom`. |
+| `tom_robot.py`                 | Implements Tom's behavior: chasing Jerry using positional data and basic pathfinding.                  |
+| `tom_robot_w_obstacle_avoidance.py` | Enhances Tom's chasing behavior with LIDAR-based obstacle avoidance.                                      |
+
+---
+
+## **2. Nodes and Topics**
+
+| **Node Name**         | **File**                          | **Published Topics**       | **Subscribed Topics**      | **Description**                                              |
+|-----------------------|-----------------------------------|----------------------------|----------------------------|--------------------------------------------------------------|
+| `/interface`          | `interface.py`                   | N/A                        | N/A                        | Flask server for web-based game interaction.                |
+| `/jerry_odom`         | `jerry_odom.py`                  | `/jerry_odom`              | `/odom`                   | Processes and publishes Jerry's odometry data.              |
+| `/jerry_robot`        | `jerry_robot.py`                 | `/cmd_vel`, `/bounding_box`| `/jerry_odom`, `/scan`    | Implements Jerry's navigation and block targeting behavior. |
+| `/object_detection`   | `object_detection.py`            | `/bounding_box`, `/cmd_vel`| `/scan`, `/cv_camera/image_raw` | Detects colored blocks and moves the robot toward them.    |
+| `/tom_odom`           | `tom_odom.py`                    | `/tom_odom`                | `/rafael/odom`            | Processes and publishes Tom's odometry data.                |
+| `/tom_robot`          | `tom_robot.py`                   | `/rafael/cmd_vel`          | `/tom_odom`, `/jerry_odom`| Controls Tom's motion to chase Jerry.                       |
+| `/tom_chaser`         | `tom_robot_w_obstacle_avoidance.py` | `/rafael/cmd_vel`          | `/rafael/scan`            | Adds obstacle avoidance to Tom’s behavior.                  |
+
+---
+
+## **3. Messages and Topics**
+
+| **Topic**            | **Type**                        | **Publisher**            | **Subscriber**            | **Purpose**                                               |
+|----------------------|---------------------------------|--------------------------|--------------------------|-----------------------------------------------------------|
+| `/cmd_vel`           | `geometry_msgs/Twist`          | `jerry_robot.py`, `object_detection.py` | N/A                | Controls Jerry's movement.                               |
+| `/rafael/cmd_vel`    | `geometry_msgs/Twist`          | `tom_robot.py`, `tom_robot_w_obstacle_avoidance.py` | N/A | Controls Tom's movement.                                |
+| `/jerry_odom`        | `geometry_msgs/Point`          | `jerry_odom.py`          | `jerry_robot.py`, `tom_robot.py` | Provides Jerry’s processed odometry.                    |
+| `/tom_odom`          | `geometry_msgs/Point`          | `tom_odom.py`            | `tom_robot.py`            | Provides Tom’s processed odometry.                       |
+| `/bounding_box`      | `geometry_msgs/Point`          | `object_detection.py`, `jerry_robot.py` | N/A | Publishes the bounding box center of detected blocks.  |
+| `/scan`              | `sensor_msgs/LaserScan`        | ROS LIDAR hardware       | `jerry_robot.py`, `tom_robot_w_obstacle_avoidance.py` | Provides LIDAR data for obstacle detection.             |
+| `/cv_camera/image_raw`| `sensor_msgs/Image`           | ROS Camera hardware      | `object_detection.py`     | Provides images for detecting colored blocks.            |
+
+---
+
+## **4. Actions Performed**
+
+| **Action**                        | **Initiated By**         | **Details**                                                                 |
+|-----------------------------------|--------------------------|-----------------------------------------------------------------------------|
+| **Navigate to Goal**              | `jerry_robot.py`         | Jerry moves toward a specified goal while avoiding obstacles.               |
+| **Detect Colored Block**          | `object_detection.py`    | Detects blocks of a specific color using HSV filtering and moves toward them.|
+| **Chase Jerry**                   | `tom_robot.py`, `tom_robot_w_obstacle_avoidance.py` | Tom chases Jerry based on positional data.                                  |
+| **Obstacle Avoidance**            | `jerry_robot.py`, `tom_robot_w_obstacle_avoidance.py` | Detects obstacles using LIDAR and avoids them by adjusting path.            |
+| **Web Interaction**               | `interface.py`           | Users interact via a web interface to select cheese colors and play the game.|
+
+---
 ### Story of the Project  
 
 **How It Unfolded, How the Team Worked Together**  
 
-Our project involved two robots - Tom and Jerry, and we decided to focus on Jerry first. There are 2 major parts to Jerry. The first is navigating through a series of obstacles, and the second is using the camera to detect colored blocks and head towards the block with the chosen color. We decided to split this part between ourselves, where Parthiv worked on navigating through the obstacles and reaching a goal coordinate, while Vedanshi worked on detecting the colored blocks and moving towards a specific colored block.  
+Our project involved two robots, and we decided to focus on one robot first. There were two major components to this robot's design: the first was navigating through a series of obstacles, and the second was using the camera to detect colored blocks and head towards the block with the chosen color. We split these tasks, with one of us working on navigating through the obstacles and reaching a goal coordinate, while the other worked on detecting the colored blocks and moving towards a specific colored block.
 
-Once we got both of these parts working, our focus was on writing the chasing code for Tom and completing the code for Jerry by combining the two parts mentioned above. Parthiv continued work on the Jerry robot while Vedanshi started work on the Tom robot and implementing chasing. Chasing proved to be very difficult, so eventually, both Parthiv and Vedanshi started to work on implementing chasing. After a lot of trial and error, and help from TAs, classmates, and the professor, we finally got a chasing algorithm working which relied on the odom of both robots.  
+Once both parts were functional, we focused on writing the chasing code for the second robot and combining the two components for the first robot. The next step was implementing the chasing functionality, which turned out to be quite challenging. As a result, both of us worked together on the chasing algorithm. After much trial and error, and with help from TAs, classmates, and the professor, we finally developed a working chasing algorithm that relied on the odometry of both robots.
 
-For the final run, we had to now integrate the obstacle avoidance code with Tom, and implement and test the entire race. This also presented some challenges, as we had to decide when the Jerry robot should switch states i.e. when should it go from “obstacle avoidance” mode to “find colored block” mode.  
+For the final run, we needed to integrate the obstacle avoidance code with the chasing robot and test the entire race. This also presented challenges, especially when deciding when the robot should switch states—specifically, when to transition from “obstacle avoidance” mode to “find colored block” mode.
 
 ---
 
@@ -191,4 +243,3 @@ Our project demonstrated the complexities and excitement of multi-robot interact
 - **End-to-End Debugging:** Given how many systems and modules (both hardware and software) could and did go wrong, we learned how to debug thoroughly, look for bugs, and narrow down seemingly vague problems.  
 
 This project not only enhanced our technical skills in ROS, LIDAR, and computer vision but also reinforced the value of perseverance and teamwork in robotics development.  
-
