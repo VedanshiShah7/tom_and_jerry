@@ -19,7 +19,7 @@ K_ANG = 0.5
 
 class TomAndJerry:
     def __init__(self):
-        rospy.init_node('tom_robot_real', anonymous=True)
+        rospy.init_node('tom_and_jerry', anonymous=True)
         self.tom_vel_pub = rospy.Publisher('rafael/cmd_vel', Twist, queue_size=10)
         self.jerry_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.rate = rospy.Rate(10)
@@ -28,22 +28,32 @@ class TomAndJerry:
         self.tom_scan_sub = rospy.Subscriber('/rafael/scan', LaserScan, self.tom_scan_cb)
         self.jerry_scan_sub = rospy.Subscriber('/scan', LaserScan, self.jerry_scan_cb)
 
-        self.tom_x = 0
-        self.tom_y = 0
-        self.jerry_x = 1
-        self.jerry_y = 0
+        # Subscribe to Tom's odom and Jerry's odom
+        rospy.Subscriber('/tom_odom', Point, self.tom_odom_cb)
+        rospy.Subscriber('/jerry_odom', Point, self.jerry_odom_cb)
 
-        self.tom_yaw = 0
-        self.jerry_yaw = 0
+        self.tom_x = None
+        self.tom_y = None
+
+        self.jerry_x = None
+        self.jerry_y = None
+
+        self.tom_yaw = None
+        self.jerry_yaw = None
 
         self.tom_linear_vel = 0
-        self.jerry_linear_vel = 0
         self.tom_angular_vel = 0
+
+        self.jerry_linear_vel = 0
         self.jerry_angular_vel = 0
 
-        self.jerry_goal_x = 3
-        self.jerry_goal_y = 0
+        self.jerry_goal_x = 4.8 # 1.2 * 4
+        self.jerry_goal_y = 5.4 # 1.5 * 3.6
 
+        self.tom_goal_x = 4.8
+        self.tom_goal_y = 5.4
+
+        self.jerry_offset = 0.5 # Distance between Jerry and Tom at the start of the game
         self.caught_threshold = 0.3  # How close Tom needs to be to catch Jerry
 
         # If an object is detected in front of robot, "obstacle_detected" is set to True,
@@ -63,8 +73,16 @@ class TomAndJerry:
         self.jerry_div_distance = {"0": [], "1": [], "2": [], "3": [], "4": [], "5": [], "6": [], "7": []}
         # div_cost calculates the cost of region based on how far it is from 0, and the sign gives the direction
         self.jerry_div_cost = {"0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": -3, "6": -2, "7": -1}
-
-        self.jerry_distance_to_goal = 2
+    
+    def jerry_odom_cb(self, msg):
+        self.jerry_x = msg.x
+        self.jerry_y = msg.y
+        self.jerry_yaw = msg.z
+    
+    def tom_odom_cb(self, msg):
+        self.tom_x = msg.x
+        self.tom_y = msg.y
+        self.tom_yaw = msg.z
     
     def tom_scan_cb(self, msg):
         for key in self.tom_div_distance.keys():
@@ -128,7 +146,7 @@ class TomAndJerry:
         self.tom_robot_state["obstacle_detected"] = (nearest != 0)
         # The avoid_angular_vel is 0.7, and it's sign is the same as the sign of the regional difference
         # We do the max(1, ) thing to avoid division by 0 when the regional difference is 0
-        self.tom_robot_state["avoid_angular_vel"] = ((region_diff/max(1, abs(region_diff))) * 0.7)
+        self.tom_robot_state["avoid_angular_vel"] = ((region_diff/max(1, abs(region_diff))) * 0.8)
     
     def calc_jerry_robot_state(self):
         nearest = math.inf
@@ -164,31 +182,7 @@ class TomAndJerry:
         # We do the max(1, ) thing to avoid division by 0 when the regional difference is 0
         self.jerry_robot_state["avoid_angular_vel"] = ((region_diff/max(1, abs(region_diff))) * 0.7)
 
-    def update_tom_position(self, dt=0.1):
-        if self.tom_angular_vel != 0:
-            self.tom_x += (self.tom_linear_vel / self.tom_angular_vel) * (math.sin(self.tom_yaw + self.tom_angular_vel * dt) - math.sin(self.tom_yaw))
-            self.tom_y -= (self.tom_linear_vel / self.tom_angular_vel) * (math.cos(self.tom_yaw + self.tom_angular_vel * dt) - math.cos(self.tom_yaw))
-            self.tom_yaw += self.tom_angular_vel * dt
-        else:  # Moving straight
-            self.tom_x += self.tom_linear_vel * math.cos(self.tom_yaw) * dt
-            self.tom_y += self.tom_linear_vel * math.sin(self.tom_yaw) * dt
-
-        # Normalize theta to the range [-π, π]
-        self.tom_yaw = (self.tom_yaw + math.pi) % (2 * math.pi) - math.pi
-
-    def update_jerry_position(self, dt=0.1):
-        if self.jerry_angular_vel != 0:
-            self.jerry_x += (self.jerry_linear_vel / self.jerry_angular_vel) * (math.sin(self.jerry_yaw + self.jerry_angular_vel * dt) - math.sin(self.jerry_yaw))
-            self.jerry_y -= (self.jerry_linear_vel / self.jerry_angular_vel) * (math.cos(self.jerry_yaw + self.jerry_angular_vel * dt) - math.cos(self.jerry_yaw))
-            self.jerry_yaw += self.jerry_angular_vel * dt
-        else:  # Moving straight
-            self.jerry_x += self.jerry_linear_vel * math.cos(self.jerry_yaw) * dt
-            self.jerry_y += self.jerry_linear_vel * math.sin(self.jerry_yaw) * dt
-
-        # Normalize theta to the range [-π, π]
-        self.jerry_yaw = (self.jerry_yaw + math.pi) % (2 * math.pi) - math.pi
-
-    def tom_go_to_jerry(self, dt=0.1):
+    def tom_go_to_jerry(self):
         # Distance to target
         distance = math.sqrt((self.jerry_x - self.tom_x)**2 + (self.jerry_y - self.tom_y)**2)
         
@@ -205,11 +199,31 @@ class TomAndJerry:
             self.tom_angular_vel = self.tom_robot_state["avoid_angular_vel"]
             # self.update_tom_position()
         else:
-            self.tom_linear_vel = 0.08 * distance / dt
-            self.tom_angular_vel = 0.08 * delta_theta / dt
+            self.tom_linear_vel = 0.08 * distance / self.dt
+            self.tom_angular_vel = 0.08 * delta_theta / self.dt
             # self.update_tom_position()
     
-    def jerry_go_to_goal(self, dt=0.1):
+    def tom_go_to_goal(self):
+        # Distance to target
+        distance = math.sqrt((self.tom_goal_x - self.tom_x)**2 + (self.tom_goal_y - self.tom_y)**2)
+        
+        # Desired heading
+        phi = math.atan2(self.tom_goal_y - self.tom_y, self.tom_goal_x - self.tom_x)
+        
+        # Angular difference
+        delta_theta = phi - self.tom_yaw
+        delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
+        
+        # Linear and angular velocity
+        if self.tom_robot_state["obstacle_detected"]:
+            self.tom_linear_vel = -0.05
+            self.tom_angular_vel = self.tom_robot_state["avoid_angular_vel"]
+        else:
+            # self.tom_linear_vel = 0.08 * distance / self.dt
+            self.tom_linear_vel = 0.2
+            self.tom_angular_vel = delta_theta
+    
+    def jerry_go_to_goal(self):
         # Distance to target
         distance = math.sqrt((self.jerry_goal_x - self.jerry_x)**2 + (self.jerry_goal_y - self.jerry_y)**2)
         
@@ -218,26 +232,27 @@ class TomAndJerry:
         
         # Angular difference
         delta_theta = phi - self.jerry_yaw
-        delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi  # Normalize to [-pi, pi]
+        delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
         
         # Linear and angular velocity
         if self.jerry_robot_state["obstacle_detected"]:
-            self.jerry_linear_vel = -0.15
+            self.jerry_linear_vel = -0.05
             self.jerry_angular_vel = self.jerry_robot_state["avoid_angular_vel"]
-            # self.update_jerry_position(dt=0.05)
         else:
-            self.jerry_linear_vel = 0.08 * distance / dt
-            self.jerry_angular_vel = 0.08 * delta_theta / dt
-            # self.update_jerry_position(dt=0.05)
+            # self.jerry_linear_vel = 0.08 * distance / self.dt
+            self.jerry_linear_vel = 0.2
+            self.jerry_angular_vel = delta_theta
 
     def run_game(self):
         """Chase Jerry by controlling Tom's motion."""
+        while self.jerry_x is None or self.tom_x is None:
+            pass
+        
         while not rospy.is_shutdown():
-            self.update_tom_position()
-            self.update_jerry_position()
             self.calc_tom_robot_state()
             self.calc_jerry_robot_state()
-            self.tom_go_to_jerry()
+            # self.tom_go_to_jerry()
+            self.tom_go_to_goal()
             self.jerry_go_to_goal()
 
             rospy.loginfo(f"Tom coordinates: ({self.tom_x}, {self.tom_y})")
@@ -248,20 +263,22 @@ class TomAndJerry:
             rospy.loginfo(f"Jerry Linear and Angular Vel: ({self.jerry_linear_vel}, {self.jerry_angular_vel})")
 
             tom_distance_to_jerry = math.sqrt((self.jerry_x - self.tom_x)**2 + (self.jerry_y - self.tom_y)**2)
-            jerry_distance_to_goal = math.sqrt((self.jerry_goal_x - self.jerry_x)**2 + (self.jerry_goal_y - self.jerry_y)**2)
+            # jerry_distance_to_goal = math.sqrt((self.jerry_goal_x - self.jerry_x)**2 + (self.jerry_goal_y - self.jerry_y)**2)
+            jerry_dist_from_origin = math.sqrt((self.jerry_x)**2 + (self.jerry_y)**2)
+            tom_dist_from_origin = math.sqrt((self.tom_x)**2 + (self.tom_y)**2)
 
-            rospy.loginfo(f"Tom distance to Jerry: {tom_distance_to_jerry}")
+            # rospy.loginfo(f"Tom distance to Jerry: {tom_distance_to_jerry}")
             rospy.loginfo(f"Jerry distance to Goal: {jerry_distance_to_goal}")
             rospy.loginfo("")
 
-            rospy.loginfo(f"Tom div distances: {self.tom_div_distance}")
+            # rospy.loginfo(f"Tom div distances: {self.tom_div_distance}")
 
             rospy.loginfo("")
 
             cmd_vel_tom = Twist()
             cmd_vel_jerry = Twist()
 
-            if tom_distance_to_jerry < self.caught_threshold:
+            if ((jerry_dist_from_origin + self.jerry_offset) - tom_dist_from_origin) < self.caught_threshold:
                 cmd_vel_tom.linear.x = 0
                 cmd_vel_tom.angular.z = 0
                 cmd_vel_jerry.linear.x = 0
@@ -271,7 +288,8 @@ class TomAndJerry:
                 rospy.loginfo("Tom caught Jerry! Tom Wins!")
                 break
             
-            if jerry_distance_to_goal < 0.1:
+            # if jerry_distance_to_goal < 0.11 or jerry_dist_from_origin > 2.4:
+            if jerry_dist_from_origin > 2.4:
                 cmd_vel_tom.linear.x = 0
                 cmd_vel_tom.angular.z = 0
                 cmd_vel_jerry.linear.x = 0

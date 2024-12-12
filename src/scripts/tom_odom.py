@@ -10,6 +10,7 @@ class TomOdom:
     def __init__(self):
         self.odom_sub = rospy.Subscriber('/rafael/odom', Odometry, self.odom_cb)
         self.my_odom_pub = rospy.Publisher('/tom_odom', Point, queue_size=1)
+        self.old_pose = None
         self.x = 0.0
         self.y = 0.0
         self.yaw = 0.0
@@ -27,8 +28,11 @@ class TomOdom:
         Updates `self.x` to the current x position of robot and
         Updates `self.y` to the current y position of robot.
         """
-        self.x = cur_pose.position.x
-        self.y = cur_pose.position.y
+        if self.old_pose is not None:
+            self.x = cur_pose.position.x - self.old_pose.position.x
+            self.y = cur_pose.position.y - self.old_pose.position.y
+        else:
+            self.old_pose = cur_pose
 
     def update_yaw(self, cur_orientation):
         """
