@@ -102,16 +102,30 @@ class ObjectDetection:
         return self.smoothed_center_x, self.smoothed_center_y
 
     def check_obstacle_ahead(self):
-        # If LiDAR data is available, check if there's an obstacle within a threshold distance (e.g., 1 meter)
+        # If LiDAR data is available, check for obstacles
         if self.lidar_data:
-            # Check the front part of the LiDAR scan (centered at the middle of the LiDAR range)
-            front_data = self.lidar_data[len(self.lidar_data)//2 - 10: len(self.lidar_data)//2 + 10]
-            
-            min_distance = np.mean(front_data)  # Get the closest distance from the front
-            rospy.loginfo(f"Obstacle distance: {min_distance} meters")  # Print the obstacle distance
-            
-            # If an obstacle is within 1 meter, return True
-            return min_distance < 0.05  # Threshold for obstacle distance
+            # Convert the LiDAR data to a NumPy array for efficient filtering
+            lidar_array = np.array(self.lidar_data)
+
+            # Replace invalid values (0, NaN, inf) with a very large number to ignore them
+            lidar_array = np.where((lidar_array == 0) | (np.isnan(lidar_array)) | (np.isinf(lidar_array)), np.inf, lidar_array)
+
+            # Define the range of indices corresponding to the front (e.g., ±15 degrees)
+            front_indices = len(lidar_array) // 2  # Center index
+            front_range = 30  # ±15 indices around the center (adjust as needed)
+
+            # Extract the front data
+            front_data = lidar_array[front_indices - front_range: front_indices + front_range]
+
+            # Compute the minimum distance from valid front data
+            min_distance = np.min(front_data)
+
+            rospy.loginfo(f"Obstacle distance: {min_distance} meters")  # Log the obstacle distance
+
+            # If an obstacle is within a threshold distance (e.g., 1 meter), return True
+            obstacle_threshold = 0.1  # Distance threshold in meters
+            return min_distance < obstacle_threshold
+
         return False
 
     def move_to_block(self, cv_image, block):
@@ -154,8 +168,8 @@ class ObjectDetection:
             rospy.loginfo("Block is close enough, stopping the robot.")
         else:
             # Adjust the robot's movement based on the smoothed bounding box position
-            tolerance_x = 50  # Adjust as necessary for stability
-            tolerance_y = 50  # Adjust as necessary for stability
+            tolerance_x = 5  # Adjust as necessary for stability
+            tolerance_y = 5  # Adjust as necessary for stability
 
             if abs(smoothed_block_center_x - 320) < tolerance_x:
                 # Adjust angular speed to turn towards the block (smaller adjustments)
@@ -168,10 +182,10 @@ class ObjectDetection:
 
             # Adjust linear speed to move forward or backward
             if abs(smoothed_block_center_y - 240) < tolerance_y:
-                if smoothed_block_center_y > 240:
+                if smoothed_block_center_y < 240:  # Block is above the center, move forward
                     move_command.linear.x = 0.5  # Move forward 
                     rospy.loginfo("Moving forward")
-                else:
+                else:  # Block is below the center, move backward
                     move_command.linear.x = -0.5  # Move backward
                     rospy.loginfo("Moving backward")
             else:
