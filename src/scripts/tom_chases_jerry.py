@@ -47,12 +47,13 @@ class TomAndJerry:
         self.jerry_linear_vel = 0
         self.jerry_angular_vel = 0
 
-        self.jerry_goal_x = 0.6 # 1.2 * 4 = 4.8
-        self.jerry_goal_y = 5.4 # 1.5 * 3.6 = 5.4
+        self.jerry_goal_x = 18 # 1.2 * 4 = 4.8
+        self.jerry_goal_y = 5 # 1.5 * 3.6 = 5.4
 
-        self.tom_goal_x = -1.3
-        self.tom_goal_y = 2.2
+        self.tom_goal_x = -1.8
+        self.tom_goal_y = 1.2
 
+        self.jerry_goal_dist = 1.1
         self.jerry_offset = 1 # Distance between Jerry and Tom at the start of the game
         self.caught_threshold = 0.1  # How close Tom needs to be to catch Jerry
 
@@ -220,7 +221,7 @@ class TomAndJerry:
             self.tom_angular_vel = self.tom_robot_state["avoid_angular_vel"]
         else:
             # self.tom_linear_vel = 0.08 * distance / self.dt
-            self.tom_linear_vel = 0.2
+            self.tom_linear_vel = 0.1
             self.tom_angular_vel = delta_theta
     
     def jerry_go_to_goal(self):
@@ -289,7 +290,7 @@ class TomAndJerry:
                 break
             
             # if jerry_distance_to_goal < 0.11 or jerry_dist_from_origin > 2.4:
-            if jerry_dist_from_origin > 1.8:
+            if jerry_dist_from_origin > self.jerry_goal_dist:
                 cmd_vel_tom.linear.x = 0
                 cmd_vel_tom.angular.z = 0
                 cmd_vel_jerry.linear.x = 0
