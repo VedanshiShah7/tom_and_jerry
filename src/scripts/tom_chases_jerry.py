@@ -47,14 +47,14 @@ class TomAndJerry:
         self.jerry_linear_vel = 0
         self.jerry_angular_vel = 0
 
-        self.jerry_goal_x = 4.8 # 1.2 * 4
-        self.jerry_goal_y = 5.4 # 1.5 * 3.6
+        self.jerry_goal_x = 0.6 # 1.2 * 4 = 4.8
+        self.jerry_goal_y = 5.4 # 1.5 * 3.6 = 5.4
 
-        self.tom_goal_x = 4.8
-        self.tom_goal_y = 5.4
+        self.tom_goal_x = -1.3
+        self.tom_goal_y = 2.2
 
-        self.jerry_offset = 0.5 # Distance between Jerry and Tom at the start of the game
-        self.caught_threshold = 0.3  # How close Tom needs to be to catch Jerry
+        self.jerry_offset = 1 # Distance between Jerry and Tom at the start of the game
+        self.caught_threshold = 0.1  # How close Tom needs to be to catch Jerry
 
         # If an object is detected in front of robot, "obstacle_detected" is set to True,
         # and an avoid_angular_vel is calculated to avoid the obstacle
@@ -268,7 +268,7 @@ class TomAndJerry:
             tom_dist_from_origin = math.sqrt((self.tom_x)**2 + (self.tom_y)**2)
 
             # rospy.loginfo(f"Tom distance to Jerry: {tom_distance_to_jerry}")
-            rospy.loginfo(f"Jerry distance to Goal: {jerry_distance_to_goal}")
+            # rospy.loginfo(f"Jerry distance to Goal: {jerry_distance_to_goal}")
             rospy.loginfo("")
 
             # rospy.loginfo(f"Tom div distances: {self.tom_div_distance}")
@@ -289,7 +289,7 @@ class TomAndJerry:
                 break
             
             # if jerry_distance_to_goal < 0.11 or jerry_dist_from_origin > 2.4:
-            if jerry_dist_from_origin > 2.4:
+            if jerry_dist_from_origin > 1.8:
                 cmd_vel_tom.linear.x = 0
                 cmd_vel_tom.angular.z = 0
                 cmd_vel_jerry.linear.x = 0

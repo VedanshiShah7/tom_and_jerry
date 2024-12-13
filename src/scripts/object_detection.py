@@ -2,7 +2,7 @@
 
 import rospy
 from std_msgs.msg import String
-from sensor_msgs.msg import Image, LaserScan
+from sensor_msgs.msg import CompressedImage, LaserScan
 from cv_bridge import CvBridge
 import cv2
 from geometry_msgs.msg import Point, Twist
@@ -21,7 +21,7 @@ class ObjectDetection:
         self.servo_pub = rospy.Publisher('/servo', String, queue_size=1)
 
         # Subscribe to the camera images to detect blocks
-        self.image_sub = rospy.Subscriber('/cv_camera/image_raw', Image, self.image_callback)
+        self.image_sub = rospy.Subscriber('/raspicam_node/image/compressed', CompressedImage, self.image_callback)
 
         # Subscribe to the LiDAR data
         self.lidar_sub = rospy.Subscriber('/scan', LaserScan, self.lidar_callback)
@@ -53,7 +53,7 @@ class ObjectDetection:
 
     def image_callback(self, msg):
         # Convert the incoming ROS Image message to OpenCV format
-        cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        cv_image = self.bridge.compressed_imgmsg_to_cv2(msg, "bgr8")
 
         # Run object detection to find blocks
         detected_block = self.detect_block(cv_image)
