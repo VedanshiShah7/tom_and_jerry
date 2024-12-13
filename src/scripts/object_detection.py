@@ -104,14 +104,22 @@ class ObjectDetection:
     def check_obstacle_ahead(self):
         # If LiDAR data is available, check if there's an obstacle within a threshold distance (e.g., 1 meter)
         if self.lidar_data:
-            # Check the front part of the LiDAR scan (centered at the middle of the LiDAR range)
-            front_data = self.lidar_data[len(self.lidar_data)//2 - 10: len(self.lidar_data)//2 + 10]
-            
-            min_distance = np.mean(front_data)  # Get the closest distance from the front
+            # Focus only on the front LiDAR data (assume 360 degrees, front corresponds to indices around 0)
+            # Taking a narrow window of angles around 0 degrees for front-only consideration
+            front_indices = list(range(355, 360)) + list(range(0, 5))
+            front_data = [
+                self.lidar_data[i] for i in front_indices 
+                if self.lidar_data[i] != float('inf') and self.lidar_data[i] > 0
+            ]
+
+            if not front_data:  # If no valid data in the front, return False
+                return False
+
+            min_distance = min(front_data)  # Get the closest distance from the front
             rospy.loginfo(f"Obstacle distance: {min_distance} meters")  # Print the obstacle distance
-            
-            # If an obstacle is within 1 meter, return True
-            return min_distance < 0.05  # Threshold for obstacle distance
+
+            # If an obstacle is within the threshold distance, return True
+            return min_distance < 0.1  # Threshold for obstacle distance
         return False
 
     def move_to_block(self, cv_image, block):
@@ -192,6 +200,7 @@ class ObjectDetection:
         self.prev_angular_z = move_command.angular.z
 
         # Publish the velocity command to move the robot
+        rospy.loginfo(f"Linear speed: {move_command.linear.x}, Angular speed: {move_command.angular.z}")
         self.velocity_pub.publish(move_command)
 
         # Publish bounding box center for debugging purposes
