@@ -17,9 +17,10 @@ class ColorBlockDetector:
 
         # Define color range in HSV
         self.color_ranges = {
-            'red': ((0, 120, 70), (10, 255, 255)),
-            'green': ((35, 43, 46), (85, 255, 255)),
-            'blue': ((100, 43, 46), (124, 255, 255))
+            "red": ((74, 105, 129), (180, 255, 255)),
+            "blue": ((100, 150, 0), (140, 255, 255)),
+            "green": ((35, 40, 40), (85, 255, 255)),
+            "yellow": ((20, 150, 150), (30, 255, 255)) 
         }
         
         if target_color not in self.color_ranges:
