@@ -102,24 +102,30 @@ class ObjectDetection:
         return self.smoothed_center_x, self.smoothed_center_y
 
     def check_obstacle_ahead(self):
-        # If LiDAR data is available, check if there's an obstacle within a threshold distance (e.g., 1 meter)
+        # If LiDAR data is available, check for obstacles
         if self.lidar_data:
-            # Focus only on the front LiDAR data (assume 360 degrees, front corresponds to indices around 0)
-            # Taking a narrow window of angles around 0 degrees for front-only consideration
-            front_indices = list(range(355, 360)) + list(range(0, 5))
-            front_data = [
-                self.lidar_data[i] for i in front_indices 
-                if self.lidar_data[i] != float('inf') and self.lidar_data[i] > 0
-            ]
+            # Convert the LiDAR data to a NumPy array for efficient filtering
+            lidar_array = np.array(self.lidar_data)
 
-            if not front_data:  # If no valid data in the front, return False
-                return False
+            # Replace invalid values (0, NaN, inf) with a very large number to ignore them
+            lidar_array = np.where((lidar_array == 0) | (np.isnan(lidar_array)) | (np.isinf(lidar_array)), np.inf, lidar_array)
 
-            min_distance = min(front_data)  # Get the closest distance from the front
-            rospy.loginfo(f"Obstacle distance: {min_distance} meters")  # Print the obstacle distance
+            # Define the range of indices corresponding to the front (e.g., ±15 degrees)
+            front_indices = len(lidar_array) // 2  # Center index
+            front_range = 30  # ±15 indices around the center (adjust as needed)
 
-            # If an obstacle is within the threshold distance, return True
-            return min_distance < 0.1  # Threshold for obstacle distance
+            # Extract the front data
+            front_data = lidar_array[front_indices - front_range: front_indices + front_range]
+
+            # Compute the minimum distance from valid front data
+            min_distance = np.min(front_data)
+
+            rospy.loginfo(f"Obstacle distance: {min_distance} meters")  # Log the obstacle distance
+
+            # If an obstacle is within a threshold distance (e.g., 1 meter), return True
+            obstacle_threshold = 0.1  # Distance threshold in meters
+            return min_distance < obstacle_threshold
+
         return False
 
     def move_to_block(self, cv_image, block):
@@ -162,8 +168,8 @@ class ObjectDetection:
             rospy.loginfo("Block is close enough, stopping the robot.")
         else:
             # Adjust the robot's movement based on the smoothed bounding box position
-            tolerance_x = 50  # Adjust as necessary for stability
-            tolerance_y = 50  # Adjust as necessary for stability
+            tolerance_x = 5  # Adjust as necessary for stability
+            tolerance_y = 5  # Adjust as necessary for stability
 
             if abs(smoothed_block_center_x - 320) < tolerance_x:
                 # Adjust angular speed to turn towards the block (smaller adjustments)
@@ -176,10 +182,10 @@ class ObjectDetection:
 
             # Adjust linear speed to move forward or backward
             if abs(smoothed_block_center_y - 240) < tolerance_y:
-                if smoothed_block_center_y > 240:
+                if smoothed_block_center_y < 240:  # Block is above the center, move forward
                     move_command.linear.x = 0.5  # Move forward 
                     rospy.loginfo("Moving forward")
-                else:
+                else:  # Block is below the center, move backward
                     move_command.linear.x = -0.5  # Move backward
                     rospy.loginfo("Moving backward")
             else:
@@ -200,7 +206,6 @@ class ObjectDetection:
         self.prev_angular_z = move_command.angular.z
 
         # Publish the velocity command to move the robot
-        rospy.loginfo(f"Linear speed: {move_command.linear.x}, Angular speed: {move_command.angular.z}")
         self.velocity_pub.publish(move_command)
 
         # Publish bounding box center for debugging purposes
