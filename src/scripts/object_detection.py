@@ -2,7 +2,7 @@
 import rospy
 import cv2
 import numpy as np
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import CompressedImage, LaserScan
 from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge
 
@@ -12,15 +12,19 @@ class ColorBlockDetector:
         self.bridge = CvBridge()
         self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.image_sub = rospy.Subscriber('/raspicam_node/image/compressed', CompressedImage, self.image_callback)
+        self.lidar_sub = rospy.Subscriber('/scan', LaserScan, self.lidar_callback)
         self.twist = Twist()
         self.target_found = False
+        self.closest_distance = float('inf')  # Initialize with a very large value
+        self.lidar = None  # Initialize lidar attribute
+        self.prev_lidar = None
 
         # Define color range in HSV
         self.color_ranges = {
             "red": ((74, 105, 129), (180, 255, 255)),
             "blue": ((100, 150, 0), (140, 255, 255)),
             "green": ((35, 40, 40), (85, 255, 255)),
-            "yellow": ((20, 150, 150), (30, 255, 255)) 
+            "yellow": ((20, 100, 100), (30, 255, 255)) 
         }
         
         if target_color not in self.color_ranges:
@@ -60,12 +64,55 @@ class ColorBlockDetector:
             self.target_found = False
             self.stop_movement()
 
+    def lidar_callback(self, msg):
+        """Callback function for processing laser scan data."""
+        # Store the previous laser scan data if it exists
+        if self.lidar is not None:
+            self.prev_lidar = self.lidar
+
+        # Clean the lidar data: set invalid readings to zero
+        lidar_data = list(msg.ranges)  # Convert the incoming range data to a list
+
+        # Filter out out-of-range values (e.g., if range is too small or too large)
+        for i in range(len(lidar_data)):
+            if lidar_data[i] < 0.12 or lidar_data[i] > 3.5:  # Filter out out-of-range values
+                lidar_data[i] = 0
+
+        # Store the cleaned lidar data
+        self.lidar = lidar_data
+
+        # Extract 10 degrees to the left (350° to 360°) and 10 degrees to the right (0° to 10°)
+        self.left_lidar = self.lidar[350:360]  # Left side laser data (350° to 359°)
+        self.right_lidar = self.lidar[0:10]    # Right side laser data (0° to 9°)
+
+        # Log the laser scan data for debugging
+        rospy.loginfo(f"Left Lidar: {self.left_lidar} ... (min: {min(self.left_lidar)})")
+        rospy.loginfo(f"Right Lidar: {self.right_lidar} ... (min: {min(self.right_lidar)})")
+
+        # Find the closest lidar distance in the left and right range
+        closest_distance_left = min(self.left_lidar) if self.left_lidar else float('inf')
+        closest_distance_right = min(self.right_lidar) if self.right_lidar else float('inf')
+        
+        # Find the closest distance overall
+        closest_distance = min(closest_distance_left, closest_distance_right)
+
+        # If the closest LIDAR distance is inf, stop the robot
+        if closest_distance == float('inf'):
+            self.stop_movement()
+            rospy.loginfo("Closest LIDAR distance is inf, stopping movement.")
+            return
+
+        # Optional: If an obstacle is detected in the left or right range, perform collision handling
+        if closest_distance < 0.5:  # If an obstacle is detected within 0.5 meters
+            self.stop_movement()  # Implement the method to stop the robot
+
+
     def move_towards_block(self, x, y, frame):
         # Robot motion parameters
         center_x = 320  # Assume image width is 640px
         center_y = 240  # Assume image height is 480px
-        stop_distance = 30  # pixels, when to stop before the block
-        threshold_distance = 50  # pixels, threshold for movement
+        stop_distance = 0.5  # meters (when to stop before the block)
+        threshold_distance = 1.0  # meters, threshold for movement
 
         # Compute error in x and y directions
         error_x = center_x - x
@@ -77,12 +124,12 @@ class ColorBlockDetector:
         cv2.waitKey(1)
 
         # Print the error values for debugging
-        rospy.loginfo(f"Error X: {error_x}, Error Y: {error_y}")
+        rospy.loginfo(f"Error X: {error_x}, Error Y: {error_y}, Closest LIDAR Distance: {self.closest_distance}")
 
-        # Stop the robot if it's close to the block
-        if abs(error_x) < stop_distance and abs(error_y) < stop_distance:
+        # Stop the robot if it's too close to the block based on LIDAR distance
+        if self.closest_distance < stop_distance:
             self.stop_movement()
-            rospy.loginfo("Block detected, stopping.")
+            rospy.loginfo("Block detected, stopping due to LIDAR distance.")
             return
 
         # Move the robot directly towards the block by adjusting its linear velocity
@@ -112,7 +159,7 @@ def main():
     rospy.init_node('color_block_detector', anonymous=True)
 
     # Example: detect red blocks
-    target_color = 'green'  # Change this to 'green' or 'blue' to detect other colors
+    target_color = 'red'  # Change this to 'green' or 'blue' to detect other colors
     detector = ColorBlockDetector(target_color)
 
     rospy.spin()
