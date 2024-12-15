@@ -307,7 +307,7 @@ class TomAndJerry:
             rospy.loginfo(f"Tom Linear and Angular Vel: ({self.tom_linear_vel}, {self.tom_angular_vel})")
             rospy.loginfo(f"Jerry Linear and Angular Vel: ({self.jerry_linear_vel}, {self.jerry_angular_vel})")
 
-            tom_distance_to_jerry = math.sqrt((self.jerry_x - self.tom_x)**2 + (self.jerry_y - self.tom_y)**2)
+            tom_distance_to_jerry = math.sqrt(((self.jerry_x + self.jerry_offset) - self.tom_x)**2 + (self.jerry_y - self.tom_y)**2)
             # Goal coordinate here is after the obstacle course and before the colored blocks
             jerry_distance_to_goal = math.sqrt((self.jerry_goal_x - self.jerry_x)**2 + (self.jerry_goal_y - self.jerry_y)**2)
 
